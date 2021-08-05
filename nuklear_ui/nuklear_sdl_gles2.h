@@ -168,6 +168,10 @@ nk_sdl_device_upload_atlas(const void *image, int width, int height)
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
     glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, (GLsizei)width, (GLsizei)height, 0,
                 GL_RGBA, GL_UNSIGNED_BYTE, image);
+	GLenum err = glGetError();
+	if (err != GL_NO_ERROR) {
+		printf("glTexImage2D failed with error %d\n", err);
+	}
 }
 
 NK_API void

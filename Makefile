@@ -101,7 +101,8 @@ endif
 
 ifeq ($(OS),Darwin)
 SDL_INCLUDE_PATH:=Frameworks/SDL2.framework/Headers
-LDFLAGS+= -FFrameworks -framework SDL2 -framework OpenGL -framework AppKit
+CFLAGS+=  -mmacosx-version-min=10.10
+LDFLAGS+= -FFrameworks -framework SDL2 -framework OpenGL -framework AppKit -mmacosx-version-min=10.10
 FIXUP:=install_name_tool -change @rpath/SDL2.framework/Versions/A/SDL2 @executable_path/Frameworks/SDL2.framework/Versions/A/SDL2
 else
 SDL_INCLUDE_PATH:=sdl/include
@@ -222,7 +223,7 @@ MAINOBJS=blastem.o system.o genesis.o vdp.o $(RENDEROBJS) io.o romdb.o hash.o me
 
 LIBOBJS=libblastem.o system.o genesis.o debug.o gdb_remote.o vdp.o io.o romdb.o hash.o xband.o realtec.o \
 	i2c.o nor.o sega_mapper.o multi_game.o megawifi.o $(NET) serialize.o $(TERMINAL) $(CONFIGOBJS) gst.o \
-	$(M68KOBJS) $(TRANSOBJS) $(AUDIOOBJS) saves.o jcart.o rom.db.o
+	$(M68KOBJS) $(TRANSOBJS) $(AUDIOOBJS) saves.o jcart.o rom.db.o gen_player.o $(LIBZOBJS)
 	
 ifdef NONUKLEAR
 CFLAGS+= -DDISABLE_NUKLEAR
@@ -302,7 +303,7 @@ libemu68k.a : $(M68KOBJS) $(TRANSOBJS)
 	ar rcs libemu68k.a $(M68KOBJS) $(TRANSOBJS)
 
 trans : trans.o serialize.o $(M68KOBJS) $(TRANSOBJS) util.o
-	$(CC) -o trans trans.o $(M68KOBJS) $(TRANSOBJS) util.o $(OPT)
+	$(CC) -o $@ $^ $(OPT)
 
 transz80 : transz80.o $(Z80OBJS) $(TRANSOBJS)
 	$(CC) -o transz80 transz80.o $(Z80OBJS) $(TRANSOBJS)
@@ -371,6 +372,9 @@ m68k.c : m68k.cpu cpu_dsl.py
 %.bin : %.s68
 	vasmm68k_mot -Fbin -m68000 -no-opt -spaces -o $@ -L $@.list $<
 
+%.md : %.s68
+	vasmm68k_mot -Fbin -m68000 -no-opt -spaces -o $@ -L $@.list $<
+
 %.bin : %.sz8
 	vasmz80_mot -Fbin -spaces -o $@ $<
 res.o : blastem.rc
@@ -383,6 +387,7 @@ button.tiles : button.png
 font.tiles : font.png
 
 menu.bin : font_interlace_variable.tiles arrow.tiles cursor.tiles button.tiles font.tiles
+tmss.md : font.tiles
 
 clean :
 	rm -rf $(ALL) trans ztestrun ztestgen *.o nuklear_ui/*.o zlib/*.o

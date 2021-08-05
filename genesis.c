@@ -104,6 +104,16 @@ void genesis_serialize(genesis_context *gen, serialize_buffer *buf, uint32_t m68
 		save_buffer8(buf, gen->zram, Z80_RAM_BYTES);
 		end_section(buf);
 		
+		if (gen->version_reg & 0xF) {
+			//only save TMSS info if it's present
+			//that will allow a state saved on a model lacking TMSS
+			//to be loaded on a model that has it
+			start_section(buf, SECTION_TMSS);
+			save_int8(buf, gen->tmss);
+			save_buffer16(buf, gen->tmss_lock, 2);
+			end_section(buf);
+		}
+		
 		cart_serialize(&gen->header, buf);
 	}
 }
@@ -173,7 +183,16 @@ static void bus_arbiter_deserialize(deserialize_buffer *buf, void *vgen)
 	gen->z80_bank_reg = load_int16(buf) & 0x1FF;
 }
 
+static void tmss_deserialize(deserialize_buffer *buf, void *vgen)
+{
+	genesis_context *gen = vgen;
+	gen->tmss = load_int8(buf);
+	load_buffer16(buf, gen->tmss_lock, 2);
+}
+
 static void adjust_int_cycle(m68k_context * context, vdp_context * v_context);
+static void check_tmss_lock(genesis_context *gen);
+static void toggle_tmss_rom(genesis_context *gen);
 void genesis_deserialize(deserialize_buffer *buf, genesis_context *gen)
 {
 	register_section_handler(buf, (section_handler){.fun = m68k_deserialize, .data = gen->m68k}, SECTION_68000);
@@ -188,9 +207,25 @@ void genesis_deserialize(deserialize_buffer *buf, genesis_context *gen)
 	register_section_handler(buf, (section_handler){.fun = ram_deserialize, .data = gen}, SECTION_MAIN_RAM);
 	register_section_handler(buf, (section_handler){.fun = zram_deserialize, .data = gen}, SECTION_SOUND_RAM);
 	register_section_handler(buf, (section_handler){.fun = cart_deserialize, .data = gen}, SECTION_MAPPER);
+	register_section_handler(buf, (section_handler){.fun = tmss_deserialize, .data = gen}, SECTION_TMSS);
+	uint8_t tmss_old = gen->tmss;
+	gen->tmss = 0xFF;
 	while (buf->cur_pos < buf->size)
 	{
 		load_section(buf);
+	}
+	if (gen->version_reg & 0xF) {
+		if (gen->tmss == 0xFF) {
+			//state lacked a TMSS section, assume that the game ROM is mapped in
+			//and that the VDP is unlocked
+			gen->tmss_lock[0] = 0x5345;
+			gen->tmss_lock[1] = 0x4741;
+			gen->tmss = 1;
+		}
+		if (gen->tmss != tmss_old) {
+			toggle_tmss_rom(gen);
+		}
+		check_tmss_lock(gen);
 	}
 	update_z80_bank_pointer(gen);
 	adjust_int_cycle(gen->m68k, gen->vdp);
@@ -242,13 +277,14 @@ static void adjust_int_cycle(m68k_context * context, vdp_context * v_context)
 		context->sync_cycle = context->current_cycle + gen->max_cycles;
 	}
 	context->int_cycle = CYCLE_NEVER;
-	if ((context->status & 0x7) < 6) {
+	uint8_t mask = context->status & 0x7;
+	if (mask < 6) {
 		uint32_t next_vint = vdp_next_vint(v_context);
 		if (next_vint != CYCLE_NEVER) {
 			context->int_cycle = next_vint;
 			context->int_num = 6;
 		}
-		if ((context->status & 0x7) < 4) {
+		if (mask < 4) {
 			uint32_t next_hint = vdp_next_hint(v_context);
 			if (next_hint != CYCLE_NEVER) {
 				next_hint = next_hint < context->current_cycle ? context->current_cycle : next_hint;
@@ -256,6 +292,21 @@ static void adjust_int_cycle(m68k_context * context, vdp_context * v_context)
 					context->int_cycle = next_hint;
 					context->int_num = 4;
 
+				}
+			}
+			if (mask < 2 && (v_context->regs[REG_MODE_3] & BIT_EINT_EN)) {
+				uint32_t next_eint_port0 = io_next_interrupt(gen->io.ports, context->current_cycle);
+				uint32_t next_eint_port1 = io_next_interrupt(gen->io.ports + 1, context->current_cycle);
+				uint32_t next_eint_port2 = io_next_interrupt(gen->io.ports + 2, context->current_cycle);
+				uint32_t next_eint = next_eint_port0 < next_eint_port1 
+					? (next_eint_port0 < next_eint_port2 ? next_eint_port0 : next_eint_port2)
+					: (next_eint_port1 < next_eint_port2 ? next_eint_port1 : next_eint_port2);
+				if (next_eint != CYCLE_NEVER) {
+					next_eint = next_eint < context->current_cycle ? context->current_cycle : next_eint;
+					if (next_eint < context->int_cycle) {
+						context->int_cycle = next_eint;
+						context->int_num = 2;
+					}
 				}
 			}
 		}
@@ -274,7 +325,7 @@ static void adjust_int_cycle(m68k_context * context, vdp_context * v_context)
 	}
 
 	context->target_cycle = context->int_cycle < context->sync_cycle ? context->int_cycle : context->sync_cycle;
-	if (context->should_return) {
+	if (context->should_return || gen->header.enter_debugger) {
 		context->target_cycle = context->current_cycle;
 	} else if (context->target_cycle < context->current_cycle) {
 		//Changes to SR can result in an interrupt cycle that's in the past
@@ -389,6 +440,9 @@ m68k_context * sync_components(m68k_context * context, uint32_t address)
 	sync_z80(z_context, mclks);
 	sync_sound(gen, mclks);
 	vdp_run_context(v_context, mclks);
+	io_run(gen->io.ports, mclks);
+	io_run(gen->io.ports + 1, mclks);
+	io_run(gen->io.ports + 2, mclks);
 	if (mclks >= gen->reset_cycle) {
 		gen->reset_requested = 1;
 		context->should_return = 1;
@@ -451,7 +505,11 @@ m68k_context * sync_components(m68k_context * context, uint32_t address)
 #ifndef NEW_CORE
 		if (gen->header.enter_debugger) {
 			gen->header.enter_debugger = 0;
-			debugger(context, address);
+			if (gen->header.debugger_type == DEBUGGER_NATIVE) {
+				debugger(context, address);
+			} else {
+				gdb_debug_enter(context, address);
+			}
 		}
 #endif
 #ifdef NEW_CORE
@@ -512,6 +570,10 @@ static m68k_context * vdp_port_write(uint32_t vdp_port, m68k_context * context, 
 	if (vdp_port & 0x2700E0) {
 		fatal_error("machine freeze due to write to address %X\n", 0xC00000 | vdp_port);
 	}
+	genesis_context * gen = context->system;
+	if (!gen->vdp_unlocked) {
+		fatal_error("machine freeze due to VDP write to %X without TMSS unlock\n", 0xC00000 | vdp_port);
+	}
 	vdp_port &= 0x1F;
 	//printf("vdp_port write: %X, value: %X, cycle: %d\n", vdp_port, value, context->current_cycle);
 #ifdef REFRESH_EMULATION
@@ -524,7 +586,6 @@ static m68k_context * vdp_port_write(uint32_t vdp_port, m68k_context * context, 
 	}
 #endif
 	sync_components(context, 0);
-	genesis_context * gen = context->system;
 	vdp_context *v_context = gen->vdp;
 	uint32_t before_cycle = v_context->cycles;
 	if (vdp_port < 0x10) {
@@ -601,7 +662,7 @@ static m68k_context * vdp_port_write(uint32_t vdp_port, m68k_context * context, 
 		vdp_test_port_write(gen->vdp, value);
 	}
 #ifdef REFRESH_EMULATION
-	last_sync_cycle -= 4;
+	last_sync_cycle -= 4 * MCLKS_PER_68K;
 	//refresh may have happened while we were waiting on the VDP,
 	//so advance refresh_counter but don't add any delays
 	if (vdp_port >= 4 && vdp_port < 8 && v_context->cycles != before_cycle) {
@@ -653,6 +714,10 @@ static uint16_t vdp_port_read(uint32_t vdp_port, m68k_context * context)
 	if (vdp_port & 0x2700E0) {
 		fatal_error("machine freeze due to read from address %X\n", 0xC00000 | vdp_port);
 	}
+	genesis_context *gen = context->system;
+	if (!gen->vdp_unlocked) {
+		fatal_error("machine freeze due to VDP read from %X without TMSS unlock\n", 0xC00000 | vdp_port);
+	}
 	vdp_port &= 0x1F;
 	uint16_t value;
 #ifdef REFRESH_EMULATION
@@ -664,27 +729,15 @@ static uint16_t vdp_port_read(uint32_t vdp_port, m68k_context * context)
 	last_sync_cycle = context->current_cycle;
 	}
 #endif
-	genesis_context *gen = context->system;
+	sync_components(context, 0);
 	vdp_context * v_context = gen->vdp;
+	uint32_t before_cycle = v_context->cycles;
 	if (vdp_port < 0x10) {
 		if (vdp_port < 4) {
-			sync_components(context, 0);
-			uint32_t before_cycle = v_context->cycles;
 			value = vdp_data_port_read(v_context);
-			if (v_context->cycles != before_cycle) {
-				//printf("68K paused for %d (%d) cycles at cycle %d (%d) for read\n", v_context->cycles - context->current_cycle, v_context->cycles - before_cycle, context->current_cycle, before_cycle);
-				context->current_cycle = v_context->cycles;
-				//Lock the Z80 out of the bus until the VDP access is complete
-				genesis_context *gen = context->system;
-				gen->bus_busy = 1;
-				sync_z80(gen->z80, v_context->cycles);
-				gen->bus_busy = 0;
-			}
 		} else if(vdp_port < 8) {
-			vdp_run_context(v_context, context->current_cycle);
 			value = vdp_control_port_read(v_context);
 		} else {
-			vdp_run_context(v_context, context->current_cycle);
 			value = vdp_hv_counter_read(v_context);
 			//printf("HV Counter: %X at cycle %d\n", value, v_context->cycles);
 		}
@@ -693,8 +746,17 @@ static uint16_t vdp_port_read(uint32_t vdp_port, m68k_context * context)
 	} else {
 		value = get_open_bus_value(&gen->header);
 	}
+	if (v_context->cycles != before_cycle) {
+		//printf("68K paused for %d (%d) cycles at cycle %d (%d) for read\n", v_context->cycles - context->current_cycle, v_context->cycles - before_cycle, context->current_cycle, before_cycle);
+		context->current_cycle = v_context->cycles;
+		//Lock the Z80 out of the bus until the VDP access is complete
+		genesis_context *gen = context->system;
+		gen->bus_busy = 1;
+		sync_z80(gen->z80, v_context->cycles);
+		gen->bus_busy = 0;
+	}
 #ifdef REFRESH_EMULATION
-	last_sync_cycle -= 4;
+	last_sync_cycle -= 4 * MCLKS_PER_68K;
 	//refresh may have happened while we were waiting on the VDP,
 	//so advance refresh_counter but don't add any delays
 	refresh_counter += (context->current_cycle - last_sync_cycle);
@@ -755,6 +817,13 @@ static uint32_t zram_counter = 0;
 static m68k_context * io_write(uint32_t location, m68k_context * context, uint8_t value)
 {
 	genesis_context * gen = context->system;
+#ifdef REFRESH_EMULATION
+	//do refresh check here so we can avoid adding a penalty for a refresh that happens during an IO area access
+	refresh_counter += context->current_cycle - 4*MCLKS_PER_68K - last_sync_cycle;
+	context->current_cycle += REFRESH_DELAY * MCLKS_PER_68K * (refresh_counter / (MCLKS_PER_68K * REFRESH_INTERVAL));
+	refresh_counter = refresh_counter % (MCLKS_PER_68K * REFRESH_INTERVAL);
+	last_sync_cycle = context->current_cycle - 4*MCLKS_PER_68K;
+#endif
 	if (location < 0x10000) {
 		//Access to Z80 memory incurs a one 68K cycle wait state
 		context->current_cycle += MCLKS_PER_68K;
@@ -808,7 +877,7 @@ static m68k_context * io_write(uint32_t location, m68k_context * context, uint8_
 				io_control_write(gen->io.ports+2, value, context->current_cycle);
 				break;
 			case 0x7:
-				gen->io.ports[0].serial_out = value;
+				io_tx_write(gen->io.ports, value, context->current_cycle);
 				break;
 			case 0x8:
 			case 0xB:
@@ -816,19 +885,20 @@ static m68k_context * io_write(uint32_t location, m68k_context * context, uint8_
 				//serial input port is not writeable
 				break;
 			case 0x9:
+				io_sctrl_write(gen->io.ports, value, context->current_cycle);
 				gen->io.ports[0].serial_ctrl = value;
 				break;
 			case 0xA:
-				gen->io.ports[1].serial_out = value;
+				io_tx_write(gen->io.ports + 1, value, context->current_cycle);
 				break;
 			case 0xC:
-				gen->io.ports[1].serial_ctrl = value;
+				io_sctrl_write(gen->io.ports + 1, value, context->current_cycle);
 				break;
 			case 0xD:
-				gen->io.ports[2].serial_out = value;
+				io_tx_write(gen->io.ports + 2, value, context->current_cycle);
 				break;
 			case 0xF:
-				gen->io.ports[2].serial_ctrl = value;
+				io_sctrl_write(gen->io.ports + 2, value, context->current_cycle);
 				break;
 			}
 		} else {
@@ -879,6 +949,11 @@ static m68k_context * io_write(uint32_t location, m68k_context * context, uint8_
 			}
 		}
 	}
+#ifdef REFRESH_EMULATION
+	//no refresh delays during IO access
+	refresh_counter += context->current_cycle - last_sync_cycle;
+	refresh_counter = refresh_counter % (MCLKS_PER_68K * REFRESH_INTERVAL);
+#endif
 	return context;
 }
 
@@ -902,6 +977,13 @@ static uint8_t io_read(uint32_t location, m68k_context * context)
 {
 	uint8_t value;
 	genesis_context *gen = context->system;
+#ifdef REFRESH_EMULATION
+	//do refresh check here so we can avoid adding a penalty for a refresh that happens during an IO area access
+	refresh_counter += context->current_cycle - 4*MCLKS_PER_68K - last_sync_cycle;
+	context->current_cycle += REFRESH_DELAY * MCLKS_PER_68K * (refresh_counter / (MCLKS_PER_68K * REFRESH_INTERVAL));
+	refresh_counter = refresh_counter % (MCLKS_PER_68K * REFRESH_INTERVAL);
+	last_sync_cycle = context->current_cycle - 4*MCLKS_PER_68K;
+#endif
 	if (location < 0x10000) {
 		//Access to Z80 memory incurs a one 68K cycle wait state
 		context->current_cycle += MCLKS_PER_68K;
@@ -952,28 +1034,28 @@ static uint8_t io_read(uint32_t location, m68k_context * context)
 				value = gen->io.ports[0].serial_out;
 				break;
 			case 0x8:
-				value = gen->io.ports[0].serial_in;
+				value = io_rx_read(gen->io.ports, context->current_cycle);
 				break;
 			case 0x9:
-				value = gen->io.ports[0].serial_ctrl;
+				value = io_sctrl_read(gen->io.ports, context->current_cycle);
 				break;
 			case 0xA:
 				value = gen->io.ports[1].serial_out;
 				break;
 			case 0xB:
-				value = gen->io.ports[1].serial_in;
+				value = io_rx_read(gen->io.ports + 1, context->current_cycle);
 				break;
 			case 0xC:
-				value = gen->io.ports[1].serial_ctrl;
+				value = io_sctrl_read(gen->io.ports, context->current_cycle);
 				break;
 			case 0xD:
 				value = gen->io.ports[2].serial_out;
 				break;
 			case 0xE:
-				value = gen->io.ports[2].serial_in;
+				value = io_rx_read(gen->io.ports + 1, context->current_cycle);
 				break;
 			case 0xF:
-				value = gen->io.ports[2].serial_ctrl;
+				value = io_sctrl_read(gen->io.ports, context->current_cycle);
 				break;
 			default:
 				value = get_open_bus_value(&gen->header) >> 8;
@@ -997,6 +1079,11 @@ static uint8_t io_read(uint32_t location, m68k_context * context)
 			}
 		}
 	}
+#ifdef REFRESH_EMULATION
+	//no refresh delays during IO access
+	refresh_counter += context->current_cycle - last_sync_cycle;
+	refresh_counter = refresh_counter % (MCLKS_PER_68K * REFRESH_INTERVAL);
+#endif
 	return value;
 }
 
@@ -1109,7 +1196,7 @@ static uint16_t unused_read(uint32_t location, void *vcontext)
 {
 	m68k_context *context = vcontext;
 	genesis_context *gen = context->system;
-	if ((location >= 0xA13000 && location < 0xA13100) || (location >= 0xA12000 && location < 0xA12100)) {
+	if (location < 0x800000 || (location >= 0xA13000 && location < 0xA13100) || (location >= 0xA12000 && location < 0xA12100)) {
 		//Only called if the cart/exp doesn't have a more specific handler for this region
 		return get_open_bus_value(&gen->header);
 	} else if (location == 0xA14000 || location == 0xA14002) {
@@ -1142,6 +1229,23 @@ static uint8_t unused_read_b(uint32_t location, void *vcontext)
 	}
 }
 
+static void check_tmss_lock(genesis_context *gen)
+{
+	gen->vdp_unlocked = gen->tmss_lock[0] == 0x5345 && gen->tmss_lock[1] == 0x4741;
+}
+
+static void toggle_tmss_rom(genesis_context *gen)
+{
+	m68k_context *context = gen->m68k;
+	for (int i = 0; i < NUM_MEM_AREAS; i++)
+	{
+		uint16_t *tmp = context->mem_pointers[i];
+		context->mem_pointers[i] = gen->tmss_pointers[i];
+		gen->tmss_pointers[i] = tmp;
+	}
+	m68k_invalidate_code_range(context, 0, 0x400000);
+}
+
 static void *unused_write(uint32_t location, void *vcontext, uint16_t value)
 {
 	m68k_context *context = vcontext;
@@ -1149,9 +1253,16 @@ static void *unused_write(uint32_t location, void *vcontext, uint16_t value)
 	uint8_t has_tmss = gen->version_reg & 0xF;
 	if (has_tmss && (location == 0xA14000 || location == 0xA14002)) {
 		gen->tmss_lock[location >> 1 & 1] = value;
+		check_tmss_lock(gen);
 	} else if (has_tmss && location == 0xA14100) {
-		//TODO: implement TMSS control register
-	} else if (location < 0xA12000 || location >= 0xA13100 || (location >= 0xA12100 && location < 0xA13000)) {
+		value &= 1;
+		if (gen->tmss != value) {
+			gen->tmss = value;
+			toggle_tmss_rom(gen);
+		}
+	} else if (location < 0x800000 || (location >= 0xA13000 && location < 0xA13100) || (location >= 0xA12000 && location < 0xA12100)) {
+		//these writes are ignored when no relevant hardware is present
+	} else {
 		fatal_error("Machine freeze due to unmapped write to %X\n", location);
 	}
 	return vcontext;
@@ -1171,9 +1282,18 @@ static void *unused_write_b(uint32_t location, void *vcontext, uint8_t value)
 			gen->tmss_lock[offset] &= 0xFF;
 			gen->tmss_lock[offset] |= value << 8;
 		}
+		check_tmss_lock(gen);
 	} else if (has_tmss && (location == 0xA14100 || location == 0xA14101)) {
-		//TODO: implement TMSS control register
-	} else if (location < 0xA12000 || location >= 0xA13100 || (location >= 0xA12100 && location < 0xA13000)) {
+		if (location & 1) {
+			value &= 1;
+			if (gen->tmss != value) {
+				gen->tmss = value;
+				toggle_tmss_rom(gen);
+			}
+		}
+	} else if (location < 0x800000 || (location >= 0xA13000 && location < 0xA13100) || (location >= 0xA12000 && location < 0xA12100)) {
+		//these writes are ignored when no relevant hardware is present
+	} else {
 		fatal_error("Machine freeze due to unmapped byte write to %X\n", location);
 	}
 	return vcontext;
@@ -1528,6 +1648,136 @@ static void stop_vgm_log(system_header *system)
 	gen->header.vgm_logging = 0;
 }
 
+static void *tmss_rom_write_16(uint32_t address, void *context, uint16_t value)
+{
+	m68k_context *m68k = context;
+	genesis_context *gen = m68k->system;
+	if (gen->tmss) {
+		return gen->tmss_write_16(address, context, value);
+	}
+	
+	return context;
+}
+
+static void *tmss_rom_write_8(uint32_t address, void *context, uint8_t value)
+{
+	m68k_context *m68k = context;
+	genesis_context *gen = m68k->system;
+	if (gen->tmss) {
+		return gen->tmss_write_8(address, context, value);
+	}
+	
+	return context;
+}
+
+static uint16_t tmss_rom_read_16(uint32_t address, void *context)
+{
+	m68k_context *m68k = context;
+	genesis_context *gen = m68k->system;
+	if (gen->tmss) {
+		return gen->tmss_read_16(address, context);
+	}
+	return ((uint16_t *)gen->tmss_buffer)[address >> 1];
+}
+
+static uint8_t tmss_rom_read_8(uint32_t address, void *context)
+{
+	m68k_context *m68k = context;
+	genesis_context *gen = m68k->system;
+	if (gen->tmss) {
+		return gen->tmss_read_8(address, context);
+	}
+#ifdef BLASTEM_BIG_ENDIAN
+	return gen->tmss_buffer[address];
+#else
+	return gen->tmss_buffer[address ^ 1];
+#endif
+}
+
+static void *tmss_word_write_16(uint32_t address, void *context, uint16_t value)
+{
+	m68k_context *m68k = context;
+	genesis_context *gen = m68k->system;
+	if (gen->tmss) {
+		address += gen->tmss_write_offset;
+		uint16_t *dest = get_native_pointer(address, (void **)m68k->mem_pointers, &m68k->options->gen);
+		*dest = value;
+		m68k_handle_code_write(address, m68k);
+	}
+	
+	return context;
+}
+
+static void *tmss_word_write_8(uint32_t address, void *context, uint8_t value)
+{
+	m68k_context *m68k = context;
+	genesis_context *gen = m68k->system;
+	if (gen->tmss) {
+		address += gen->tmss_write_offset;
+		uint8_t *dest = get_native_pointer(address & ~1, (void **)m68k->mem_pointers, &m68k->options->gen);
+#ifdef BLASTEM_BIG_ENDIAN
+		dest[address & 1] = value;
+#else
+		dest[address & 1 ^ 1] = value;
+#endif
+		m68k_handle_code_write(address & ~1, m68k);
+	}
+	
+	return context;
+}
+
+static void *tmss_odd_write_16(uint32_t address, void *context, uint16_t value)
+{
+	m68k_context *m68k = context;
+	genesis_context *gen = m68k->system;
+	if (gen->tmss) {
+		memmap_chunk const *chunk = find_map_chunk(address + gen->tmss_write_offset, &m68k->options->gen, 0, NULL);
+		address >>= 1;
+		uint8_t *base = (uint8_t *)m68k->mem_pointers[chunk->ptr_index];
+		base[address] = value;
+	}
+	return context;
+}
+
+static void *tmss_odd_write_8(uint32_t address, void *context, uint8_t value)
+{
+	m68k_context *m68k = context;
+	genesis_context *gen = m68k->system;
+	if (gen->tmss && (address & 1)) {
+		memmap_chunk const *chunk = find_map_chunk(address + gen->tmss_write_offset, &m68k->options->gen, 0, NULL);
+		address >>= 1;
+		uint8_t *base = (uint8_t *)m68k->mem_pointers[chunk->ptr_index];
+		base[address] = value;
+	}
+	return context;
+}
+
+static void *tmss_even_write_16(uint32_t address, void *context, uint16_t value)
+{
+	m68k_context *m68k = context;
+	genesis_context *gen = m68k->system;
+	if (gen->tmss) {
+		memmap_chunk const *chunk = find_map_chunk(address + gen->tmss_write_offset, &m68k->options->gen, 0, NULL);
+		address >>= 1;
+		uint8_t *base = (uint8_t *)m68k->mem_pointers[chunk->ptr_index];
+		base[address] = value >> 8;
+	}
+	return context;
+}
+
+static void *tmss_even_write_8(uint32_t address, void *context, uint8_t value)
+{
+	m68k_context *m68k = context;
+	genesis_context *gen = m68k->system;
+	if (gen->tmss && !(address & 1)) {
+		memmap_chunk const *chunk = find_map_chunk(address + gen->tmss_write_offset, &m68k->options->gen, 0, NULL);
+		address >>= 1;
+		uint8_t *base = (uint8_t *)m68k->mem_pointers[chunk->ptr_index];
+		base[address] = value;
+	}
+	return context;
+}
+
 genesis_context *alloc_init_genesis(rom_info *rom, void *main_rom, void *lock_on, uint32_t system_opts, uint8_t force_region)
 {
 	static memmap_chunk z80_map[] = {
@@ -1569,6 +1819,8 @@ genesis_context *alloc_init_genesis(rom_info *rom, void *main_rom, void *lock_on
 	uint8_t tmss = !strcmp(tern_find_ptr_default(model, "tmss", "off"), "on");
 	if (tmss) {
 		gen->version_reg |= 1;
+	} else {
+		gen->vdp_unlocked = 1;
 	}
 
 	uint8_t max_vsram = !strcmp(tern_find_ptr_default(model, "vsram", "40"), "64");
@@ -1664,13 +1916,145 @@ genesis_context *alloc_init_genesis(rom_info *rom, void *main_rom, void *lock_on
 		gen->save_storage = NULL;
 	}
 	
+	gen->mapper_start_index = rom->mapper_start_index;
+	
 	//This must happen before we generate memory access functions in init_m68k_opts
+	uint8_t next_ptr_index = 0;
+	uint32_t tmss_min_alloc = 16 * 1024;
 	for (int i = 0; i < rom->map_chunks; i++)
 	{
 		if (rom->map[i].start == 0xE00000) {
 			rom->map[i].buffer = gen->work_ram;
-			break;
+			if (!tmss) {
+				break;
+			}
 		}
+		if (rom->map[i].flags & MMAP_PTR_IDX && rom->map[i].ptr_index >= next_ptr_index) {
+			next_ptr_index = rom->map[i].ptr_index + 1;
+		}
+		if (rom->map[i].start < 0x400000 && rom->map[i].read_16 != unused_read) {
+			uint32_t highest_offset = (rom->map[i].end & rom->map[i].mask) + 1;
+			if (highest_offset > tmss_min_alloc) {
+				tmss_min_alloc = highest_offset;
+			}
+		}
+	}
+	if (tmss) {
+		char *tmss_path = tern_find_path_default(config, "system\0tmss_path\0", (tern_val){.ptrval = "tmss.md"}, TVAL_PTR).ptrval;
+		uint8_t *buffer = malloc(tmss_min_alloc);
+		uint32_t tmss_size;
+		if (is_absolute_path(tmss_path)) {
+			FILE *f = fopen(tmss_path, "rb");
+			if (!f) {
+				fatal_error("Configured to use a model with TMSS, but failed to load the TMSS ROM from %s\n", tmss_path);
+			}
+			tmss_size = fread(buffer, 1, tmss_min_alloc, f);
+			fclose(f);
+		} else {
+			char *tmp = read_bundled_file(tmss_path, &tmss_size);
+			if (!tmp) {
+				fatal_error("Configured to use a model with TMSS, but failed to load the TMSS ROM from %s\n", tmss_path);
+			}
+			memcpy(buffer, tmp, tmss_size);
+			free(tmp);
+		}
+		for (uint32_t padded = nearest_pow2(tmss_size); tmss_size < padded; tmss_size++)
+		{
+			buffer[tmss_size] = 0xFF;
+		}
+#ifndef BLASTEM_BIG_ENDIAN
+		byteswap_rom(tmss_size, (uint16_t *)buffer);
+#endif
+		//mirror TMSS ROM until we fill up to tmss_min_alloc
+		for (uint32_t dst = tmss_size; dst < tmss_min_alloc; dst += tmss_size)
+		{
+			memcpy(buffer + dst, buffer, dst + tmss_size > tmss_min_alloc ? tmss_min_alloc - dst : tmss_size);
+		}
+		//modify mappings for ROM space to point to the TMSS ROM and fixup flags to allow switching back and forth
+		//WARNING: This code makes some pretty big assumptions about the kinds of map chunks it will encounter
+		for (int i = 0; i < rom->map_chunks; i++)
+		{
+			if (rom->map[i].start < 0x400000 && rom->map[i].read_16 != unused_read) {
+				if (rom->map[i].flags == MMAP_READ) {
+					//Normal ROM
+					rom->map[i].flags |= MMAP_PTR_IDX | MMAP_CODE;
+					rom->map[i].ptr_index = next_ptr_index++;
+					if (rom->map[i].ptr_index >= NUM_MEM_AREAS) {
+						fatal_error("Too many memmap chunks with MMAP_PTR_IDX after TMSS remap\n");
+					}
+					gen->tmss_pointers[rom->map[i].ptr_index] = rom->map[i].buffer;
+					rom->map[i].buffer = buffer + (rom->map[i].start & ~rom->map[i].mask & (tmss_size - 1));
+				} else if (rom->map[i].flags & MMAP_PTR_IDX) {
+					//Sega mapper page or multi-game mapper
+					gen->tmss_pointers[rom->map[i].ptr_index] = rom->map[i].buffer;
+					rom->map[i].buffer = buffer + (rom->map[i].start & ~rom->map[i].mask & (tmss_size - 1));
+					if (rom->map[i].write_16) {
+						if (!gen->tmss_write_16) {
+							gen->tmss_write_16 = rom->map[i].write_16;
+							gen->tmss_write_8 = rom->map[i].write_8;
+							rom->map[i].write_16 = tmss_rom_write_16;
+							rom->map[i].write_8 = tmss_rom_write_8;
+						} else if (gen->tmss_write_16 == rom->map[i].write_16) {
+							rom->map[i].write_16 = tmss_rom_write_16;
+							rom->map[i].write_8 = tmss_rom_write_8;
+						} else {
+							warning("Chunk starting at %X has a write function, but we've already stored a different one for TMSS remap\n", rom->map[i].start);
+						}
+					}
+				} else if ((rom->map[i].flags & (MMAP_READ | MMAP_WRITE)) == (MMAP_READ | MMAP_WRITE)) {
+					//RAM or SRAM
+					rom->map[i].flags |= MMAP_PTR_IDX;
+					rom->map[i].ptr_index = next_ptr_index++;
+					gen->tmss_pointers[rom->map[i].ptr_index] = rom->map[i].buffer;
+					rom->map[i].buffer = buffer + (rom->map[i].start & ~rom->map[i].mask & (tmss_size - 1));
+					if (!gen->tmss_write_offset || gen->tmss_write_offset == rom->map[i].start) {
+						gen->tmss_write_offset = rom->map[i].start;
+						rom->map[i].flags &= ~MMAP_WRITE;
+						if (rom->map[i].flags & MMAP_ONLY_ODD) {
+							rom->map[i].write_16 = tmss_odd_write_16;
+							rom->map[i].write_8 = tmss_odd_write_8;
+						} else if (rom->map[i].flags & MMAP_ONLY_EVEN) {
+							rom->map[i].write_16 = tmss_even_write_16;
+							rom->map[i].write_8 = tmss_even_write_8;
+						} else {
+							rom->map[i].write_16 = tmss_word_write_16;
+							rom->map[i].write_8 = tmss_word_write_8;
+						}
+					} else {
+						warning("Could not remap writes for chunk starting at %X for TMSS because write_offset is %X\n", rom->map[i].start, gen->tmss_write_offset);
+					}
+				} else if (rom->map[i].flags & MMAP_READ_CODE) {
+					//NOR flash
+					rom->map[i].flags |= MMAP_PTR_IDX;
+					rom->map[i].ptr_index = next_ptr_index++;
+					if (rom->map[i].ptr_index >= NUM_MEM_AREAS) {
+						fatal_error("Too many memmap chunks with MMAP_PTR_IDX after TMSS remap\n");
+					}
+					gen->tmss_pointers[rom->map[i].ptr_index] = rom->map[i].buffer;
+					rom->map[i].buffer = buffer + (rom->map[i].start & ~rom->map[i].mask & (tmss_size - 1));
+					if (!gen->tmss_write_16) {
+						gen->tmss_write_16 = rom->map[i].write_16;
+						gen->tmss_write_8 = rom->map[i].write_8;
+						gen->tmss_read_16 = rom->map[i].read_16;
+						gen->tmss_read_8 = rom->map[i].read_8;
+						rom->map[i].write_16 = tmss_rom_write_16;
+						rom->map[i].write_8 = tmss_rom_write_8;
+						rom->map[i].read_16 = tmss_rom_read_16;
+						rom->map[i].read_8 = tmss_rom_read_8;
+					} else if (gen->tmss_write_16 == rom->map[i].write_16) {
+						rom->map[i].write_16 = tmss_rom_write_16;
+						rom->map[i].write_8 = tmss_rom_write_8;
+						rom->map[i].read_16 = tmss_rom_read_16;
+						rom->map[i].read_8 = tmss_rom_read_8;
+					} else {
+						warning("Chunk starting at %X has a write function, but we've already stored a different one for TMSS remap\n", rom->map[i].start);
+					}
+				} else {
+					warning("Didn't remap chunk starting at %X for TMSS because it has flags %X\n", rom->map[i].start, rom->map[i].flags);
+				}
+			}
+		}
+		gen->tmss_buffer = buffer;
 	}
 
 	m68k_options *opts = malloc(sizeof(m68k_options));

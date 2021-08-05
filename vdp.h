@@ -54,7 +54,7 @@
 #define FLAG_PENDING       0x10
 #define FLAG_READ_FETCHED  0x20
 #define FLAG_DMA_RUN       0x40
-#define FLAG_DMA_PROG      0x80
+#define FLAG_WINDOW_EDGE   0x80
 
 #define FLAG2_VINT_PENDING   0x01
 #define FLAG2_HINT_PENDING   0x02
@@ -91,8 +91,11 @@ enum {
 	REG_DMALEN_H,
 	REG_DMASRC_L,
 	REG_DMASRC_M,
-	REG_DMASRC_H
-} vdp_regs;
+	REG_DMASRC_H,
+	REG_KMOD_CTRL=29,
+	REG_KMOD_MSG,
+	REG_KMOD_TIMER
+};
 
 //Mode reg 1
 #define BIT_VSCRL_LOCK 0x80
@@ -115,7 +118,7 @@ enum {
 #define BIT_SPRITE_SZ  0x02
 
 //Mode reg 3
-#define BIT_EINT_EN    0x10
+#define BIT_EINT_EN    0x08
 #define BIT_VSCROLL    0x04
 
 //Mode reg 4
@@ -168,6 +171,10 @@ typedef struct {
 	uint32_t       *fb;
 	uint8_t        *done_composite;
 	uint32_t       *debug_fbs[VDP_NUM_DEBUG_TYPES];
+	char           *kmod_msg_buffer;
+	uint32_t       kmod_buffer_storage;
+	uint32_t       kmod_buffer_length;
+	uint32_t       timer_start_cycle;
 	uint32_t       output_pitch;
 	uint32_t       debug_fb_pitch[VDP_NUM_DEBUG_TYPES];
 	fifo_entry     fifo[FIFO_SIZE];

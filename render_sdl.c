@@ -171,8 +171,14 @@ void render_free_audio_opaque(void *opaque)
 
 void render_audio_created(audio_source *source)
 {
-	if (render_is_audio_sync()) {
-		SDL_PauseAudio(0);
+	if (sync_src == SYNC_AUDIO) {
+		//SDL_PauseAudio acquires the audio device lock, which is held while the callback runs
+		//since our callback can itself be stuck waiting on the audio_ready condition variable
+		//calling SDL_PauseAudio(0) again for audio sources after the first can deadlock
+		//fortunately SDL_GetAudioStatus does not acquire the lock so is safe to call here
+		if (SDL_GetAudioStatus() == SDL_AUDIO_PAUSED) {
+			SDL_PauseAudio(0);
+		}
 	}
 	if (current_system && sync_src == SYNC_AUDIO_THREAD) {
 		system_request_exit(current_system, 0);
@@ -194,8 +200,14 @@ void render_source_paused(audio_source *src, uint8_t remaining_sources)
 
 void render_source_resumed(audio_source *src)
 {
-	if (render_is_audio_sync()) {
-		SDL_PauseAudio(0);
+	if (sync_src == SYNC_AUDIO) {
+		//SDL_PauseAudio acquires the audio device lock, which is held while the callback runs
+		//since our callback can itself be stuck waiting on the audio_ready condition variable
+		//calling SDL_PauseAudio(0) again for audio sources after the first can deadlock
+		//fortunately SDL_GetAudioStatus does not acquire the lock so is safe to call here
+		if (SDL_GetAudioStatus() == SDL_AUDIO_PAUSED) {
+			SDL_PauseAudio(0);
+		}
 	}
 	if (current_system && sync_src == SYNC_AUDIO_THREAD) {
 		system_request_exit(current_system, 0);
@@ -394,7 +406,7 @@ static void gl_setup()
 	} else {
 		tex_width = tex_height = 512;
 	}
-	printf("Using %dx%d textures\n", tex_width, tex_height);
+	debug_message("Using %dx%d textures\n", tex_width, tex_height);
 	for (int i = 0; i < 3; i++)
 	{
 		glBindTexture(GL_TEXTURE_2D, textures[i]);
@@ -1191,6 +1203,19 @@ void render_init(int width, int height, char * title, uint8_t fullscreen)
 
 	atexit(render_quit);
 }
+
+void render_reset_mappings(void)
+{
+	SDL_QuitSubSystem(SDL_INIT_GAMECONTROLLER);
+	SDL_InitSubSystem(SDL_INIT_GAMECONTROLLER);
+	uint32_t db_size;
+	char *db_data = read_bundled_file("gamecontrollerdb.txt", &db_size);
+	if (db_data) {
+		int added = SDL_GameControllerAddMappingsFromRW(SDL_RWFromMem(db_data, db_size), 1);
+		free(db_data);
+		debug_message("Added %d game controller mappings from gamecontrollerdb.txt\n", added);
+	}
+}
 static int in_toggle;
 
 void render_config_updated(void)
@@ -1706,6 +1731,7 @@ void render_video_loop(void)
 	if (sync_src != SYNC_AUDIO_THREAD && sync_src != SYNC_EXTERNAL) {
 		return;
 	}
+	SDL_PauseAudio(0);
 	SDL_LockMutex(frame_mutex);
 		for(;;)
 		{

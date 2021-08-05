@@ -60,22 +60,33 @@ static void wait_commands(vgm_writer *writer, uint32_t delta)
 	}
 }
 
+#include "util.h"
 static void add_wait(vgm_writer *writer, uint32_t cycle)
 {
-	uint64_t delta = cycle - writer->last_cycle;
-	delta *= (uint64_t)44100;
-	delta /= (uint64_t)writer->master_clock;
+	if (cycle < writer->last_cycle) {
+		//This can happen when a YM-2612 write happens immediately after a PSG write
+		//due to the relatively low granularity of the PSG's internal clock
+		//given that VGM only has a granularity of 44.1 kHz ignoring this is harmless
+		return;
+	}
+	uint64_t last_sample = (uint64_t)writer->last_cycle * (uint64_t)44100;
+	last_sample /= (uint64_t)writer->master_clock;
+	uint64_t sample = ((uint64_t)cycle + (uint64_t)writer->extra_delta) * (uint64_t)44100;
+	sample /= (uint64_t)writer->master_clock;
+	uint32_t delta = sample - last_sample;
 	
-	uint32_t mclks_per_sample = writer->master_clock / 44100;
-	writer->last_cycle += delta * mclks_per_sample; 
+	writer->last_cycle = cycle;
+	writer->extra_delta = 0;
 	writer->header.num_samples += delta;
 	wait_commands(writer, delta);
 }
 
+static uint8_t last_cmd;
 void vgm_sn76489_write(vgm_writer *writer, uint32_t cycle, uint8_t value)
 {
 	add_wait(writer, cycle);
 	uint8_t cmd[2] = {CMD_PSG, value};
+	last_cmd = CMD_PSG;
 	fwrite(cmd, 1, sizeof(cmd), writer->f);
 }
 
@@ -88,6 +99,7 @@ void vgm_ym2612_part1_write(vgm_writer *writer, uint32_t cycle, uint8_t reg, uin
 {
 	add_wait(writer, cycle);
 	uint8_t cmd[3] = {CMD_YM2612_0, reg, value};
+	last_cmd = CMD_YM2612_0;
 	fwrite(cmd, 1, sizeof(cmd), writer->f);
 }
 
@@ -95,12 +107,14 @@ void vgm_ym2612_part2_write(vgm_writer *writer, uint32_t cycle, uint8_t reg, uin
 {
 	add_wait(writer, cycle);
 	uint8_t cmd[3] = {CMD_YM2612_1, reg, value};
+	last_cmd = CMD_YM2612_1;
 	fwrite(cmd, 1, sizeof(cmd), writer->f);
 }
 
 void vgm_adjust_cycles(vgm_writer *writer, uint32_t deduction)
 {
 	if (deduction > writer->last_cycle) {
+		writer->extra_delta += deduction - writer->last_cycle;
 		writer->last_cycle = 0;
 	} else {
 		writer->last_cycle -= deduction;
@@ -109,6 +123,8 @@ void vgm_adjust_cycles(vgm_writer *writer, uint32_t deduction)
 
 void vgm_close(vgm_writer *writer)
 {
+	uint8_t cmd = 0x66;
+	fwrite(&cmd, 1, sizeof(cmd), writer->f);
 	writer->header.eof_offset = ftell(writer->f) - offsetof(vgm_header, eof_offset);
 	fseek(writer->f, SEEK_SET, 0);
 	fwrite(&writer->header, sizeof(writer->header), 1, writer->f);

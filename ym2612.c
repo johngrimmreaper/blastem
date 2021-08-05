@@ -179,6 +179,11 @@ void ym_reset(ym2612_context *context)
 	for (int i = 0; i < NUM_CHANNELS; i++) {
 		context->channels[i].lr = 0xC0;
 		context->channels[i].logfile = savedlogs[i];
+		if (i < 3) {
+			context->part1_regs[REG_LR_AMS_PMS - YM_PART1_START + i] = 0xC0;
+		} else {
+			context->part2_regs[REG_LR_AMS_PMS - YM_PART2_START + i - 3] = 0xC0;
+		}
 	}
 	context->write_cycle = CYCLE_NEVER;
 	for (int i = 0; i < NUM_OPERATORS; i++) {
@@ -402,6 +407,9 @@ void ym_run_timers(ym2612_context *context)
 				context->timer_b = context->timer_b_load;
 			}
 		}
+	} else if (context->timer_control & BIT_TIMERB_LOAD) {
+		context->timer_control &= ~BIT_TIMERB_LOAD;
+		context->timer_b = context->timer_b_load;
 	}
 	context->sub_timer_b += 0x10;
 	//Update LFO

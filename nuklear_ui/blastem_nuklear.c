@@ -31,7 +31,8 @@ typedef struct
 	struct nk_image  ui;
 } ui_image;
 
-static ui_image **ui_images, *controller_360, *controller_ps4, *controller_ps4_6b;
+static ui_image **ui_images, *controller_360, *controller_ps4, 
+	*controller_ps4_6b, *controller_wiiu, *controller_gen_6b;
 static uint32_t num_ui_images, ui_image_storage;
 
 typedef void (*view_fun)(struct nk_context *);
@@ -88,6 +89,15 @@ void view_file_browser(struct nk_context *context, uint8_t normal_open)
 		if (entries) {
 			sort_dir_list(entries, num_entries);
 		}
+		if (!num_entries) {
+			//get_dir_list can fail if the user doesn't have permission
+			//for the current folder, make sure they can still navigate up
+			free_dir_list(entries, num_entries);
+			entries = calloc(1, sizeof(dir_entry));
+			entries[0].name = strdup("..");
+			entries[0].is_dir = 1;
+			num_entries = 1;
+		}
 	}
 	if (!got_ext_list) {
 		ext_list = get_extension_list(config, &num_exts);
@@ -98,7 +108,8 @@ void view_file_browser(struct nk_context *context, uint8_t normal_open)
 	if (nk_begin(context, "Load ROM", nk_rect(0, 0, width, height), 0)) {
 		nk_layout_row_static(context, height - context->style.font->height * 3, width - 60, 1);
 		int32_t old_selected = selected_entry;
-		if (nk_group_begin(context, "Select ROM", NK_WINDOW_BORDER | NK_WINDOW_TITLE)) {
+		char *title = alloc_concat("Select ROM: ", current_path);
+		if (nk_group_begin(context, title, NK_WINDOW_BORDER | NK_WINDOW_TITLE)) {
 			nk_layout_row_static(context, context->style.font->height - 2, width-100, 1);
 			for (int32_t i = 0; i < num_entries; i++)
 			{
@@ -118,6 +129,7 @@ void view_file_browser(struct nk_context *context, uint8_t normal_open)
 			}
 			nk_group_end(context);
 		}
+		free(title);
 		nk_layout_row_static(context, context->style.font->height * 1.75, width > 600 ? 300 : width / 2, 2);
 		if (nk_button_label(context, "Back")) {
 			pop_view();
@@ -977,10 +989,16 @@ void view_select_binding_dest(struct nk_context *context)
 
 static ui_image *select_best_image(controller_info *info)
 {
-	if (info->variant != VARIANT_NORMAL) {
-		return controller_ps4_6b;
+	if (info->variant != VARIANT_NORMAL || info->type == TYPE_SEGA) {
+		if (info->type == TYPE_PSX) {
+			return controller_ps4_6b;
+		} else {
+			return controller_gen_6b;
+		}
 	} else if (info->type == TYPE_PSX) {
 		return controller_ps4;
+	} else if (info->type == TYPE_NINTENDO) {
+		return controller_wiiu;
 	} else {
 		return controller_360;
 	}
@@ -1243,14 +1261,14 @@ static void view_controller_mappings(struct nk_context *context)
 				)) {
 				if (current_button <= SDL_CONTROLLER_BUTTON_B || axis_moved != button_a_axis) {
 					start_mapping();
+					if (current_button >= SDL_CONTROLLER_BUTTON_DPAD_UP) {
+						mapping_string[mapping_pos++] = axis_value >= 0 ? '+' : '-';
+					}
 					mapping_string[mapping_pos++] = 'a';
 					if (axis_moved > 9) {
 						mapping_string[mapping_pos++] = '0' + axis_moved / 10;
 					}
 					mapping_string[mapping_pos++] = '0' + axis_moved % 10;
-					if (current_button >= SDL_CONTROLLER_BUTTON_DPAD_UP) {
-						mapping_string[mapping_pos++] = axis_value >= 0 ? '+' : '-';
-					}
 					last_axis = axis_moved;
 					last_axis_value = axis_value;
 				}
@@ -1330,26 +1348,41 @@ static void view_controller_variant(struct nk_context *context)
 		nk_label(context, "Select the layout that", NK_TEXT_CENTERED);
 		nk_label(context, "best matches your controller", NK_TEXT_CENTERED);
 		nk_label(context, "", NK_TEXT_CENTERED);
-		if (nk_button_label(context, "4 face buttons")) {
-			selected_controller_info.variant = VARIANT_NORMAL;
-			selected = 1;
-		}
-		char buffer[512];
-		snprintf(buffer, sizeof(buffer), "6 face buttons including %s and %s", 
-			get_button_label(&selected_controller_info, SDL_CONTROLLER_BUTTON_RIGHTSHOULDER), 
-			get_axis_label(&selected_controller_info, SDL_CONTROLLER_AXIS_TRIGGERRIGHT)
-		);
-		if (nk_button_label(context, buffer)) {
-			selected_controller_info.variant = VARIANT_6B_RIGHT;
-			selected = 1;
-		}
-		snprintf(buffer, sizeof(buffer), "6 face buttons including %s and %s", 
-			get_button_label(&selected_controller_info, SDL_CONTROLLER_BUTTON_LEFTSHOULDER), 
-			get_button_label(&selected_controller_info, SDL_CONTROLLER_BUTTON_RIGHTSHOULDER)
-		);
-		if (nk_button_label(context, buffer)) {
-			selected_controller_info.variant = VARIANT_6B_BUMPERS;
-			selected = 1;
+		if (selected_controller_info.subtype == SUBTYPE_GENESIS) {
+			if (nk_button_label(context, "3 button")) {
+				selected_controller_info.variant = VARIANT_3BUTTON;
+				selected = 1;
+			}
+			if (nk_button_label(context, "Standard 6 button")) {
+				selected_controller_info.variant = VARIANT_6B_BUMPERS;
+				selected = 1;
+			}
+			if (nk_button_label(context, "6 button with 2 shoulder buttons")) {
+				selected_controller_info.variant = VARIANT_8BUTTON;
+				selected = 1;
+			}
+		} else {
+			if (nk_button_label(context, "4 face buttons")) {
+				selected_controller_info.variant = VARIANT_NORMAL;
+				selected = 1;
+			}
+			char buffer[512];
+			snprintf(buffer, sizeof(buffer), "6 face buttons including %s and %s", 
+				get_button_label(&selected_controller_info, SDL_CONTROLLER_BUTTON_RIGHTSHOULDER), 
+				get_axis_label(&selected_controller_info, SDL_CONTROLLER_AXIS_TRIGGERRIGHT)
+			);
+			if (nk_button_label(context, buffer)) {
+				selected_controller_info.variant = VARIANT_6B_RIGHT;
+				selected = 1;
+			}
+			snprintf(buffer, sizeof(buffer), "6 face buttons including %s and %s", 
+				get_button_label(&selected_controller_info, SDL_CONTROLLER_BUTTON_LEFTSHOULDER), 
+				get_button_label(&selected_controller_info, SDL_CONTROLLER_BUTTON_RIGHTSHOULDER)
+			);
+			if (nk_button_label(context, buffer)) {
+				selected_controller_info.variant = VARIANT_6B_BUMPERS;
+				selected = 1;
+			}
 		}
 		nk_end(context);
 	}
@@ -1380,7 +1413,22 @@ static void controller_type_group(struct nk_context *context, char *name, int ty
 				selected_controller_info.type = type_id;
 				selected_controller_info.subtype = first_subtype_id + i;
 				pop_view();
-				push_view(view_controller_variant);
+				if (selected_controller_info.subtype == SUBTYPE_SATURN) {
+					selected_controller_info.variant = VARIANT_6B_BUMPERS;
+					save_controller_info(selected_controller, &selected_controller_info);
+					if (initial_controller_config) {
+						SDL_GameController *controller = render_get_controller(selected_controller);
+						if (controller) {
+							push_view(view_controller_bindings);
+							controller_binding_changed = 0;
+							SDL_GameControllerClose(controller);
+						} else {
+							show_mapping_view();
+						}
+					}
+				} else {
+					push_view(view_controller_variant);
+				}
 			}
 		}
 		nk_group_end(context);
@@ -1960,18 +2008,43 @@ void view_system_settings(struct nk_context *context)
 	uint32_t desired_width = context->style.font->height * 10;
 	if (nk_begin(context, "System Settings", nk_rect(0, 0, width, height), 0)) {
 		nk_layout_row_static(context, context->style.font->height, desired_width, 2);
+		
+		selected_model = settings_dropdown_ex(context, "Model", model_opts, model_names, num_models, selected_model, "system\0model\0");
+		selected_io_1 = settings_dropdown_ex(context, "IO Port 1 Device", io_opts_1, device_type_names, num_io, selected_io_1, "io\0devices\0""1\0");
+		selected_io_2 = settings_dropdown_ex(context, "IO Port 2 Device", io_opts_2, device_type_names, num_io, selected_io_2, "io\0devices\0""2\0");
+		selected_region = settings_dropdown_ex(context, "Default Region", region_codes, regions, num_regions, selected_region, "system\0default_region\0");
 		selected_sync = settings_dropdown(context, "Sync Source", sync_opts, num_sync_opts, selected_sync, "system\0sync_source\0");
 		settings_int_property(context, "68000 Clock Divider", "", "clocks\0m68k_divider\0", 7, 1, 53);
+		selected_format = settings_dropdown(context, "Save State Format", formats, num_formats, selected_format, "ui\0state_format\0");
+		selected_init = settings_dropdown(context, "Initial RAM Value", ram_inits, num_inits, selected_init, "system\0ram_init\0");
 		settings_toggle(context, "Remember ROM Path", "ui\0remember_path\0", 1);
 		settings_toggle(context, "Save config with EXE", "ui\0config_in_exe_dir\0", 0);
 		settings_string(context, "Game Save Path", "ui\0save_path\0", "$USERDATA/blastem/$ROMNAME");
-		selected_region = settings_dropdown_ex(context, "Default Region", region_codes, regions, num_regions, selected_region, "system\0default_region\0");
-		selected_model = settings_dropdown_ex(context, "Model", model_opts, model_names, num_models, selected_model, "system\0model\0");
-		selected_format = settings_dropdown(context, "Save State Format", formats, num_formats, selected_format, "ui\0state_format\0");
-		selected_init = settings_dropdown(context, "Initial RAM Value", ram_inits, num_inits, selected_init, "system\0ram_init\0");
-		selected_io_1 = settings_dropdown_ex(context, "IO Port 1 Device", io_opts_1, device_type_names, num_io, selected_io_1, "io\0devices\0""1\0");
-		selected_io_2 = settings_dropdown_ex(context, "IO Port 2 Device", io_opts_2, device_type_names, num_io, selected_io_2, "io\0devices\0""2\0");
+		
 		if (nk_button_label(context, "Back")) {
+			pop_view();
+		}
+		nk_end(context);
+	}
+}
+
+void view_confirm_reset(struct nk_context *context)
+{
+	if (nk_begin(context, "Reset Confirm", nk_rect(0, 0, render_width(), render_height()), 0)) {
+		uint32_t desired_width = context->style.font->height * 20;
+		nk_layout_row_static(context, context->style.font->height, desired_width, 1);
+		nk_label(context, "This will reset all settings and controller", NK_TEXT_LEFT);
+		nk_label(context, "mappings back to the defaults.", NK_TEXT_LEFT);
+		nk_label(context, "Are you sure you want to proceed?", NK_TEXT_LEFT);
+		nk_layout_row_static(context, context->style.font->height * 1.5, desired_width / 2, 2);
+		if (nk_button_label(context, "Maybe not")) {
+			pop_view();
+		}
+		if (nk_button_label(context, "Yep, delete it all")) {
+			delete_custom_config();
+			config = load_config();
+			delete_controller_info();
+			config_dirty = 1;
 			pop_view();
 		}
 		nk_end(context);
@@ -1993,6 +2066,7 @@ void view_settings(struct nk_context *context)
 		{"Video", view_video_settings},
 		{"Audio", view_audio_settings},
 		{"System", view_system_settings},
+		{"Reset to Defaults", view_confirm_reset},
 		{"Back", view_back}
 	};
 	
@@ -2310,6 +2384,8 @@ void blastem_nuklear_init(uint8_t file_loaded)
 	controller_360 = load_ui_image("images/360.png");
 	controller_ps4 = load_ui_image("images/ps4.png");
 	controller_ps4_6b = load_ui_image("images/ps4_6b.png");
+	controller_wiiu = load_ui_image("images/wiiu.png");
+	controller_gen_6b = load_ui_image("images/genesis_6b.png");
 	
 	texture_init();
 	

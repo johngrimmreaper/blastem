@@ -10,6 +10,7 @@
 #include "render.h"
 #include "util.h"
 #include "event_log.h"
+#include "terminal.h"
 
 #define NTSC_INACTIVE_START 224
 #define PAL_INACTIVE_START 240
@@ -253,6 +254,15 @@ vdp_context *init_vdp_context(uint8_t region_pal, uint8_t has_max_vsram)
 
 void vdp_free(vdp_context *context)
 {
+	if (headless) {
+		free(context->fb);
+	}
+	for (int i = 0; i < VDP_NUM_DEBUG_TYPES; i++)
+	{
+		if (context->enabled_debuggers & (1 << i)) {
+			vdp_toggle_debug_view(context, i);
+		}
+	}
 	free(context);
 }
 
@@ -1144,8 +1154,12 @@ static void read_map_scroll(uint16_t column, uint16_t vsram_off, uint32_t line, 
 			context->v_offset = (line) & v_offset_mask;
 			context->flags |= FLAG_WINDOW;
 			return;
+		} else if (column == right_col) {
+			context->flags |= FLAG_WINDOW_EDGE;
+			context->flags &= ~FLAG_WINDOW;
+		} else {
+			context->flags &= ~(FLAG_WINDOW_EDGE|FLAG_WINDOW);
 		}
-		context->flags &= ~FLAG_WINDOW;
 	}
 	//TODO: Verify behavior for 0x20 case
 	uint16_t vscroll = 0xFF | (context->regs[REG_SCROLL] & 0x30) << 4;
@@ -1159,7 +1173,7 @@ static void read_map_scroll(uint16_t column, uint16_t vsram_off, uint32_t line, 
 	vscroll >>= vscroll_shift;
 	//TODO: Verify the behavior for a setting of 2
 	static const uint16_t hscroll_masks[] = {0x1F, 0x3F, 0x1F, 0x7F};
-	static const uint16_t v_shifts[] = {6, 7, 0, 8};
+	static const uint16_t v_shifts[] = {6, 7, 16, 8};
 	uint16_t hscroll_mask = hscroll_masks[context->regs[REG_SCROLL] & 0x3];
 	uint16_t v_shift = v_shifts[context->regs[REG_SCROLL] & 0x3];
 	uint16_t hscroll, offset;
@@ -1338,7 +1352,7 @@ static sh_pixel composite_highlight(vdp_context *context, uint8_t *debug_dst, ui
 	return (sh_pixel){.index = pixel, .intensity = intensity};
 }
 
-static void render_normal(vdp_context *context, int32_t col, uint8_t *dst, uint8_t *debug_dst, int plane_a_off, int plane_b_off)
+static void render_normal(vdp_context *context, int32_t col, uint8_t *dst, uint8_t *debug_dst, uint8_t *buf_a, int plane_a_off, int plane_a_mask, int plane_b_off)
 {
 	uint8_t *sprite_buf = context->linebuf + col * 8;
 	if (!col && (context->regs[REG_MODE_1] & BIT_COL0_MASK)) {
@@ -1352,7 +1366,7 @@ static void render_normal(vdp_context *context, int32_t col, uint8_t *dst, uint8
 		for (int i = 0; i < 8; ++plane_a_off, ++plane_b_off, ++sprite_buf, ++i)
 		{
 			uint8_t sprite, plane_a, plane_b;
-			plane_a = context->tmp_buf_a[plane_a_off & SCROLL_BUFFER_MASK];
+			plane_a = buf_a[plane_a_off & plane_a_mask];
 			plane_b = context->tmp_buf_b[plane_b_off & SCROLL_BUFFER_MASK];
 			*(dst++) = composite_normal(context, debug_dst, *sprite_buf, plane_a, plane_b, context->regs[REG_BG_COLOR]) & 0x3F;
 			debug_dst++;
@@ -1361,7 +1375,7 @@ static void render_normal(vdp_context *context, int32_t col, uint8_t *dst, uint8
 		for (int i = 0; i < 16; ++plane_a_off, ++plane_b_off, ++sprite_buf, ++i)
 		{
 			uint8_t sprite, plane_a, plane_b;
-			plane_a = context->tmp_buf_a[plane_a_off & SCROLL_BUFFER_MASK];
+			plane_a = buf_a[plane_a_off & plane_a_mask];
 			plane_b = context->tmp_buf_b[plane_b_off & SCROLL_BUFFER_MASK];
 			*(dst++) = composite_normal(context, debug_dst, *sprite_buf, plane_a, plane_b, context->regs[REG_BG_COLOR]) & 0x3F;
 			debug_dst++;
@@ -1369,7 +1383,7 @@ static void render_normal(vdp_context *context, int32_t col, uint8_t *dst, uint8
 	}
 }
 
-static void render_highlight(vdp_context *context, int32_t col, uint8_t *dst, uint8_t *debug_dst, int plane_a_off, int plane_b_off)
+static void render_highlight(vdp_context *context, int32_t col, uint8_t *dst, uint8_t *debug_dst, uint8_t *buf_a, int plane_a_off, int plane_a_mask, int plane_b_off)
 {
 	int start = 0;
 	if (!col && (context->regs[REG_MODE_1] & BIT_COL0_MASK)) {
@@ -1383,7 +1397,7 @@ static void render_highlight(vdp_context *context, int32_t col, uint8_t *dst, ui
 	for (int i = start; i < 16; ++plane_a_off, ++plane_b_off, ++sprite_buf, ++i)
 	{
 		uint8_t sprite, plane_a, plane_b;
-		plane_a = context->tmp_buf_a[plane_a_off & SCROLL_BUFFER_MASK];
+		plane_a = buf_a[plane_a_off & plane_a_mask];
 		plane_b = context->tmp_buf_b[plane_b_off & SCROLL_BUFFER_MASK];
 		sprite = *sprite_buf;
 		sh_pixel pixel = composite_highlight(context, debug_dst, sprite, plane_a, plane_b, context->regs[REG_BG_COLOR]);
@@ -1400,7 +1414,7 @@ static void render_highlight(vdp_context *context, int32_t col, uint8_t *dst, ui
 	}
 }
 
-static void render_testreg(vdp_context *context, int32_t col, uint8_t *dst, uint8_t *debug_dst, int plane_a_off, int plane_b_off, uint8_t output_disabled, uint8_t test_layer)
+static void render_testreg(vdp_context *context, int32_t col, uint8_t *dst, uint8_t *debug_dst, uint8_t *buf_a, int plane_a_off, int plane_a_mask, int plane_b_off, uint8_t output_disabled, uint8_t test_layer)
 {
 	if (output_disabled) {
 		switch (test_layer)
@@ -1424,7 +1438,7 @@ static void render_testreg(vdp_context *context, int32_t col, uint8_t *dst, uint
 		case 2:
 			for (int i = 0; i < 16; i++)
 			{
-				*(dst++) = context->tmp_buf_a[(plane_a_off++) & SCROLL_BUFFER_MASK] & 0x3F;
+				*(dst++) = buf_a[(plane_a_off++) & plane_a_mask] & 0x3F;
 				*(debug_dst++) = DBG_SRC_A;
 			}
 			break;
@@ -1454,7 +1468,7 @@ static void render_testreg(vdp_context *context, int32_t col, uint8_t *dst, uint
 					}
 					break;
 				case 2:
-					pixel &= context->tmp_buf_a[(plane_a_off + i) & SCROLL_BUFFER_MASK];
+					pixel &= buf_a[(plane_a_off + i) & plane_a_mask];
 					if (pixel) {
 						src = DBG_SRC_A;
 					}
@@ -1478,7 +1492,7 @@ static void render_testreg(vdp_context *context, int32_t col, uint8_t *dst, uint
 		for (int i = start; i < 16; ++plane_a_off, ++plane_b_off, ++sprite_buf, ++i)
 		{
 			uint8_t sprite, plane_a, plane_b;
-			plane_a = context->tmp_buf_a[plane_a_off & SCROLL_BUFFER_MASK];
+			plane_a = buf_a[plane_a_off & plane_a_mask];
 			plane_b = context->tmp_buf_b[plane_b_off & SCROLL_BUFFER_MASK];
 			sprite = *sprite_buf;
 			uint8_t pixel = composite_normal(context, debug_dst, sprite, plane_a, plane_b, 0x3F) & 0x3F;
@@ -1509,7 +1523,7 @@ static void render_testreg(vdp_context *context, int32_t col, uint8_t *dst, uint
 	}
 }
 
-static void render_testreg_highlight(vdp_context *context, int32_t col, uint8_t *dst, uint8_t *debug_dst, int plane_a_off, int plane_b_off, uint8_t output_disabled, uint8_t test_layer)
+static void render_testreg_highlight(vdp_context *context, int32_t col, uint8_t *dst, uint8_t *debug_dst, uint8_t *buf_a, int plane_a_off, int plane_a_mask, int plane_b_off, uint8_t output_disabled, uint8_t test_layer)
 {
 	int start = 0;
 	uint8_t *sprite_buf = context->linebuf + col * 8;
@@ -1528,7 +1542,7 @@ static void render_testreg_highlight(vdp_context *context, int32_t col, uint8_t 
 				}
 				break;
 			case 2:
-				pixel &= context->tmp_buf_a[(plane_a_off + i) & SCROLL_BUFFER_MASK];
+				pixel &= buf_a[(plane_a_off + i) & plane_a_mask];
 				if (pixel) {
 					src = DBG_SRC_A | DBG_SHADOW;
 				}
@@ -1552,7 +1566,7 @@ static void render_testreg_highlight(vdp_context *context, int32_t col, uint8_t 
 	for (int i = start; i < 16; ++plane_a_off, ++plane_b_off, ++sprite_buf, ++i)
 	{
 		uint8_t sprite, plane_a, plane_b;
-		plane_a = context->tmp_buf_a[plane_a_off & SCROLL_BUFFER_MASK];
+		plane_a = buf_a[plane_a_off & plane_a_mask];
 		plane_b = context->tmp_buf_b[plane_b_off & SCROLL_BUFFER_MASK];
 		sprite = *sprite_buf;
 		sh_pixel pixel = composite_highlight(context, debug_dst, sprite, plane_a, plane_b, 0x3F);
@@ -1626,27 +1640,40 @@ static void render_map_output(uint32_t line, int32_t col, vdp_context * context)
 		
 		
 		uint8_t a_src, src;
+		uint8_t *buf_a;
+		int plane_a_mask;
 		if (context->flags & FLAG_WINDOW) {
 			plane_a_off = context->buf_a_off;
+			buf_a = context->tmp_buf_a;
 			a_src = DBG_SRC_W;
+			plane_a_mask = SCROLL_BUFFER_MASK;
 		} else {
-			plane_a_off = context->buf_a_off - context->hscroll_a_fine;
+			if (context->flags & FLAG_WINDOW_EDGE) {
+				buf_a = context->tmp_buf_a + context->buf_a_off;
+				plane_a_mask = 15;
+				plane_a_off = -context->hscroll_a_fine;
+			} else {
+				plane_a_off = context->buf_a_off - context->hscroll_a_fine;
+				plane_a_mask = SCROLL_BUFFER_MASK;
+				buf_a = context->tmp_buf_a;
+			}
 			a_src = DBG_SRC_A;
 		}
+		plane_a_off &= plane_a_mask;
 		plane_b_off = context->buf_b_off - context->hscroll_b_fine;
 		//printf("A | tmp_buf offset: %d\n", 8 - (context->hscroll_a & 0x7));
 
 		if (context->regs[REG_MODE_4] & BIT_HILIGHT) {
 			if (output_disabled || test_layer) {
-				render_testreg_highlight(context, col, dst, debug_dst, plane_a_off, plane_b_off, output_disabled, test_layer);
+				render_testreg_highlight(context, col, dst, debug_dst, buf_a, plane_a_off, plane_a_mask, plane_b_off, output_disabled, test_layer);
 			} else {
-				render_highlight(context, col, dst, debug_dst, plane_a_off, plane_b_off);
+				render_highlight(context, col, dst, debug_dst, buf_a, plane_a_off, plane_a_mask, plane_b_off);
 			}
 		} else {
 			if (output_disabled || test_layer) {
-				render_testreg(context, col, dst, debug_dst, plane_a_off, plane_b_off, output_disabled, test_layer);
+				render_testreg(context, col, dst, debug_dst, buf_a, plane_a_off, plane_a_mask, plane_b_off, output_disabled, test_layer);
 			} else {
-				render_normal(context, col, dst, debug_dst, plane_a_off, plane_b_off);
+				render_normal(context, col, dst, debug_dst, buf_a, plane_a_off, plane_a_mask, plane_b_off);
 			}
 		}
 		dst += 16;
@@ -3368,6 +3395,8 @@ static void check_switch_inactive(vdp_context *context, uint8_t is_h40)
 	//technically the second hcounter check should be different for H40, but this is probably close enough for now
 	if (context->state == ACTIVE && context->vcounter == context->inactive_start && (context->hslot >= (is_h40 ? 167 : 135) || context->hslot < 133)) {
 		context->state = INACTIVE;
+		context->cur_slot = MAX_SPRITES_LINE-1;
+		context->sprite_x_offset = 0;
 	}
 }
 
@@ -3750,13 +3779,15 @@ int vdp_control_port_write(vdp_context * context, uint16_t value)
 		}
 	} else {
 		uint8_t mode_5 = context->regs[REG_MODE_2] & BIT_MODE_5;
-		//contrary to what's in Charles MacDonald's doc, it seems top 2 address bits are cleared
-		//needed for the Mona in 344 Bytes demo
 		context->address_latch = (context->address_latch & 0x1C000) | (value & 0x3FFF);
 		context->cd_latch = (context->cd_latch & 0x3C) | (value >> 14);
 		if ((value & 0xC000) == 0x8000) {
 			//Register write
 			uint8_t reg = (value >> 8) & 0x1F;
+			// The fact that this is needed seems to pour some cold water on my theory
+			// about how the address latch actually works. Needs more search to definitively confirm
+			context->address = (context->address & 0x1C000) | (value & 0x3FFF);
+			context->cd = (context->cd & 0x3C) | (value >> 14);
 			if (reg < (mode_5 ? VDP_REGS : 0xB)) {
 				//printf("register %d set to %X\n", reg, value & 0xFF);
 				if (reg == REG_MODE_1 && (value & BIT_HVC_LATCH) && !(context->regs[reg] & BIT_HVC_LATCH)) {
@@ -3780,6 +3811,43 @@ int vdp_control_port_write(vdp_context * context, uint16_t value)
 				if (reg == REG_MODE_1 || reg == REG_MODE_2 || reg == REG_MODE_4) {
 					update_video_params(context);
 				}
+			} else if (reg == REG_KMOD_CTRL) {
+				if (!(value & 0xFF)) {
+					context->system->enter_debugger = 1;
+				}
+			} else if (reg == REG_KMOD_MSG) {
+				char c = value;
+				if (c) {
+					context->kmod_buffer_length++;
+					if ((context->kmod_buffer_length + 1) > context->kmod_buffer_storage) {
+						context->kmod_buffer_storage = context->kmod_buffer_length ? 128 : context->kmod_buffer_length * 2;
+						context->kmod_msg_buffer = realloc(context->kmod_msg_buffer, context->kmod_buffer_storage);
+					}
+					context->kmod_msg_buffer[context->kmod_buffer_length - 1] = c;
+				} else if (context->kmod_buffer_length) {
+					context->kmod_msg_buffer[context->kmod_buffer_length] = 0;
+					if (is_stdout_enabled()) {
+						init_terminal();
+						printf("KDEBUG MESSAGE: %s\n", context->kmod_msg_buffer);
+					} else {
+						// GDB remote debugging is enabled, use stderr instead
+						fprintf(stderr, "KDEBUG MESSAGE: %s\n", context->kmod_msg_buffer);
+					}
+					context->kmod_buffer_length = 0;
+				}
+			} else if (reg == REG_KMOD_TIMER) {
+				if (!(value & 0x80)) {
+					if (is_stdout_enabled()) {
+						init_terminal();
+						printf("KDEBUG TIMER: %d\n", (context->cycles - context->timer_start_cycle) / 7);
+					} else {
+						// GDB remote debugging is enabled, use stderr instead
+						fprintf(stderr, "KDEBUG TIMER: %d\n", (context->cycles - context->timer_start_cycle) / 7);
+					}
+				}
+				if (value & 0xC0) {
+					context->timer_start_cycle = context->cycles;
+				}
 			}
 		} else if (mode_5) {
 			context->flags |= FLAG_PENDING;
@@ -3787,6 +3855,7 @@ int vdp_control_port_write(vdp_context * context, uint16_t value)
 			//context->flags &= ~FLAG_READ_FETCHED;
 			//context->flags2 &= ~FLAG2_READ_PENDING;
 		} else {
+			clear_pending(context);
 			context->flags &= ~FLAG_READ_FETCHED;
 			context->flags2 &= ~FLAG2_READ_PENDING;
 		}
@@ -3950,6 +4019,20 @@ uint16_t vdp_data_port_read(vdp_context * context)
 	}
 	if (context->cd & 1) {
 		warning("Read from VDP data port while writes are configured, CPU is now frozen. VDP Address: %X, CD: %X\n", context->address, context->cd);
+		context->system->enter_debugger = 1;
+		return context->prefetch;
+	}
+	switch (context->cd)
+	{
+	case VRAM_READ:
+	case VSRAM_READ:
+	case CRAM_READ:
+	case VRAM_READ8:
+		break;
+	default:
+		warning("Read from VDP data port with invalid source, CPU is now frozen. VDP Address: %X, CD: %X\n", context->address, context->cd);
+		context->system->enter_debugger = 1;
+		return context->prefetch;
 	}
 	while (!(context->flags & FLAG_READ_FETCHED)) {
 		vdp_run_context_full(context, context->cycles + ((context->regs[REG_MODE_4] & BIT_H40) ? 16 : 20));
