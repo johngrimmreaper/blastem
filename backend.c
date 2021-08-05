@@ -58,12 +58,14 @@ memmap_chunk const *find_map_chunk(uint32_t address, cpu_options *opts, uint16_t
 	if (size_sum) {
 		*size_sum = 0;
 	}
+#ifndef NEW_CORE
 	uint32_t minsize;
 	if (flags == MMAP_CODE) {
 		minsize = 1 << (opts->ram_flags_shift + 3);
 	} else {
 		minsize = 0;
 	}
+#endif
 	address &= opts->address_mask;
 	for (memmap_chunk const *cur = opts->memmap, *end = opts->memmap + opts->memmap_chunks; cur != end; cur++)
 	{
@@ -71,9 +73,11 @@ memmap_chunk const *find_map_chunk(uint32_t address, cpu_options *opts, uint16_t
 			return cur;
 		} else if (size_sum && (cur->flags & flags) == flags) {
 			uint32_t size = chunk_size(opts, cur);
+#ifndef NEW_CORE
 			if (size < minsize) {
 				size = minsize;
 			}
+#endif
 			*size_sum += size;
 		}
 	}
@@ -281,16 +285,22 @@ uint32_t chunk_size(cpu_options *opts, memmap_chunk const *chunk)
 uint32_t ram_size(cpu_options *opts)
 {
 	uint32_t size = 0;
+#ifndef NEW_CORE
 	uint32_t minsize = 1 << (opts->ram_flags_shift + 3);
+#endif
 	for (int i = 0; i < opts->memmap_chunks; i++)
 	{
 		if (opts->memmap[i].flags & MMAP_CODE) {
 			uint32_t cursize = chunk_size(opts, opts->memmap + i);
+#ifndef NEW_CORE
 			if (cursize < minsize) {
 				size += minsize;
 			} else {
+#endif
 				size += cursize;
+#ifndef NEW_CORE
 			}
+#endif
 		}
 	}
 	return size;
