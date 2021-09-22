@@ -184,7 +184,8 @@ endif
 TRANSOBJS=gen.o backend.o $(MEM) arena.o tern.o
 M68KOBJS=68kinst.o
 
-ifdef NEW_CORE
+NEW_CORE:=1
+ifeq ($(NEW_CORE),1)
 Z80OBJS=z80.o z80inst.o 
 M68KOBJS+= m68k_core.o musashi/m68kops.o musashi/m68kcpu.o
 CFLAGS+= -DNEW_CORE
@@ -344,12 +345,9 @@ offsets : offsets.c z80_to_x86.h m68k_core.h
 
 vos_prog_info : vos_prog_info.o vos_program_module.o
 	$(CC) -o vos_prog_info vos_prog_info.o vos_program_module.o
-	
-m68k.c : m68k.cpu cpu_dsl.py
-	./cpu_dsl.py -d call $< > $@
 
 %.c : %.cpu cpu_dsl.py
-	./cpu_dsl.py -d goto $< > $@
+	./cpu_dsl.py -d call $< > $@
 
 %.db.c : %.db
 	sed $< -e 's/"/\\"/g' -e 's/^\(.*\)$$/"\1\\n"/' -e'1s/^\(.*\)$$/const char $(shell echo $< | tr '.' '_')_data[] = \1/' -e '$$s/^\(.*\)$$/\1;/' > $@
