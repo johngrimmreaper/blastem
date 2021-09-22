@@ -218,11 +218,11 @@ endif
 
 #MAINOBJS=blastem.o system.o genesis.o debug.o gdb_remote.o vdp.o $(RENDEROBJS) io.o romdb.o hash.o menu.o xband.o 
 MAINOBJS=blastem.o system.o genesis.o vdp.o $(RENDEROBJS) io.o romdb.o hash.o menu.o xband.o \
-	realtec.o i2c.o nor.o sega_mapper.o multi_game.o megawifi.o $(NET) serialize.o $(TERMINAL) $(CONFIGOBJS) gst.o \
+	realtec.o i2c.o nor.o sega_mapper.o multi_game.o $(NET) serialize.o $(TERMINAL) $(CONFIGOBJS) gst.o \
 	$(M68KOBJS) $(TRANSOBJS) $(AUDIOOBJS) saves.o zip.o bindings.o jcart.o gen_player.o
 
 LIBOBJS=libblastem.o system.o genesis.o debug.o gdb_remote.o vdp.o io.o romdb.o hash.o xband.o realtec.o \
-	i2c.o nor.o sega_mapper.o multi_game.o megawifi.o $(NET) serialize.o $(TERMINAL) $(CONFIGOBJS) gst.o \
+	i2c.o nor.o sega_mapper.o multi_game.o $(NET) serialize.o $(TERMINAL) $(CONFIGOBJS) gst.o \
 	$(M68KOBJS) $(TRANSOBJS) $(AUDIOOBJS) saves.o jcart.o rom.db.o gen_player.o $(LIBZOBJS)
 	
 ifdef NONUKLEAR
