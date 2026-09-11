@@ -1,0 +1,10 @@
+[Desktop Entry]
+Name=BlastEm
+Comment=Accurate emulator for Sega 8-bit and 16-bit systems
+Exec=blastem
+Keywords=emulator;console;games;rom;sega;genesis;megadrive;megacd;segacd;32x;mastersystem;gamegear;sg1000;sc3000;
+Terminal=false
+Type=Application
+Icon=blastem
+Categories=Game;Emulator;
+StartupNotify=true

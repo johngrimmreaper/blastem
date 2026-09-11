@@ -1,0 +1,9 @@
+blastem (0.6.3.4+git20260821.2dd605c-1) UNRELEASED; urgency=medium
+
+  * Initial packaging for the 2026-08-21 master snapshot at commit 2dd605c.
+  * Use the native GTK 3 file chooser and system zlib.
+  * Enable amd64, i386, arm64 and armhf builds.
+  * Apply distribution hardening and reproducibility flags, and install desktop
+    integration, runtime data and smoke tests.
+
+ -- Reaper <JohnGrimmReaper@disroot.org>  Sun, 23 Aug 2026 22:21:38 +0000

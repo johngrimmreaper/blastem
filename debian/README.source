@@ -1,0 +1,16 @@
+BlastEm snapshot packaging
+==========================
+
+This package tracks the Git master snapshot at commit
+2dd605c6e27971f67ce5b8363cc858964f99aa50 (2026-08-21).
+
+Create the matching orig tarball from a clean repository with:
+
+    git archive --format=tar \
+      --prefix=blastem-0.6.3.4+git20260821.2dd605c/ \
+      2dd605c6e27971f67ce5b8363cc858964f99aa50 | \
+      xz -9e > ../blastem_0.6.3.4+git20260821.2dd605c.orig.tar.xz
+
+The snapshot version patch makes the exact source revision visible through
+"blastem -v". The build-flags patch ensures that dpkg-buildflags hardening and
+reproducibility flags are not overwritten by the upstream Makefile.

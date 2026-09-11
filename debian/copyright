@@ -1,0 +1,123 @@
+Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
+Upstream-Name: BlastEm
+Upstream-Contact: Michael Pavone <pavone@retrodev.com>
+Source: https://www.retrodev.com/blastem
+
+Files: *
+Copyright: 2011-2026 Michael Pavone <pavone@retrodev.com>
+License: GPL-3+
+
+Files: zlib/*
+Copyright: 1995-2022 Jean-loup Gailly and Mark Adler
+License: Zlib
+
+Files: libretro.h
+Copyright: 2010-2024 The RetroArch team
+License: MIT
+
+Files: nuklear_ui/nuklear.h
+Copyright: 2014-2017 Micha Mettke
+           2004-2005 Tristan Grimmer
+License: public-domain and MIT
+ Nuklear and its embedded stb components are dedicated to the public domain.
+ The embedded ProggyClean font is distributed under the MIT license.
+
+Files: nuklear_ui/nuklear_rawfb.h
+Copyright: 2016-2017 Patrick Rudolph <siro@das-labor.org>
+License: MIT
+
+Files: nuklear_ui/nuklear_sdl_gles2.h
+Copyright: 2014-2017 Micha Mettke
+           Chris Willcocks
+           Dmitry Hrabrov
+License: public-domain
+
+Files: shaders/bandlimit_pixel.f.glsl
+Copyright: Themaister
+           hunterk
+License: MIT
+
+Files: shaders/xBRZ.f.glsl
+Copyright: 2011-2016 Hyllian <sergiogdb@gmail.com>
+           Zenju <zenju@gmx.de>
+           hunterk
+License: GPL-3+ and MIT
+
+Files: gamecontrollerdb.txt
+Copyright: 1997-2025 Sam Lantinga <slouken@libsdl.org>
+License: Zlib
+
+Files: android/gradle/wrapper/* android/gradlew android/gradlew.bat
+Copyright: 2015-2017 the original Gradle authors
+License: Apache-2.0
+
+Files: debian/*
+Copyright: 2026 Reaper <JohnGrimmReaper@disroot.org>
+License: GPL-3+
+
+Files: debian/blastem.png
+Copyright: 2012-2019 Michael Pavone
+License: GPL-3+
+
+Files: debian/blastem.6
+Copyright: 2019 Carlos Donizete Froes <coringao@riseup.net>
+           2026 Reaper <JohnGrimmReaper@disroot.org>
+License: GPL-3+
+
+License: GPL-3+
+ This program is free software: you can redistribute it and/or modify it under
+ the terms of the GNU General Public License as published by the Free Software
+ Foundation, either version 3 of the License, or (at your option) any later
+ version.
+ .
+ This program is distributed in the hope that it will be useful, but WITHOUT
+ ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+ FOR A PARTICULAR PURPOSE. See the GNU General Public License for more details.
+ .
+ On Debian systems, the complete text of version 3 of the GNU General Public
+ License can be found in "/usr/share/common-licenses/GPL-3".
+
+License: MIT
+ Permission is hereby granted, free of charge, to any person obtaining a copy
+ of this software and associated documentation files (the "Software"), to deal
+ in the Software without restriction, including without limitation the rights
+ to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ copies of the Software, and to permit persons to whom the Software is
+ furnished to do so, subject to the following conditions:
+ .
+ The above copyright notice and this permission notice shall be included in all
+ copies or substantial portions of the Software.
+ .
+ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ SOFTWARE.
+
+License: Zlib
+ This software is provided 'as-is', without any express or implied warranty. In
+ no event will the authors be held liable for any damages arising from the use
+ of this software.
+ .
+ Permission is granted to anyone to use this software for any purpose,
+ including commercial applications, and to alter it and redistribute it
+ freely, subject to the following restrictions:
+ .
+  1. The origin of this software must not be misrepresented; you must not claim
+     that you wrote the original software. If you use this software in a
+     product, an acknowledgment in the product documentation would be
+     appreciated but is not required.
+  2. Altered source versions must be plainly marked as such, and must not be
+     misrepresented as being the original software.
+  3. This notice may not be removed or altered from any source distribution.
+
+License: public-domain
+ This software is dual-licensed to the public domain and under a perpetual,
+ irrevocable permission to copy, modify, publish, use, compile, sell or
+ distribute it for any purpose, commercial or non-commercial, by any means.
+
+License: Apache-2.0
+ On Debian systems, the complete text of the Apache License, Version 2.0 can be
+ found in "/usr/share/common-licenses/Apache-2.0".

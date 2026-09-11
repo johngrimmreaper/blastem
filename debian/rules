@@ -1,0 +1,20 @@
+#!/usr/bin/make -f
+
+export DEB_BUILD_MAINT_OPTIONS = hardening=+all reproducible=+all
+include /usr/share/dpkg/default.mk
+
+export CFLAGS CPPFLAGS LDFLAGS
+
+%:
+	dh $@
+
+override_dh_auto_build:
+	dh_auto_build -- \
+		HOST_ZLIB=1 \
+		CPU=$(DEB_HOST_GNU_CPU) \
+		CONFIG_PATH=/etc/blastem \
+		DATA_PATH=/usr/share/games/blastem \
+		FONT_PATH=/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf
+
+override_dh_installchangelogs:
+	dh_installchangelogs CHANGELOG

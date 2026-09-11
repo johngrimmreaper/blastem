@@ -1,0 +1,85 @@
+.TH BLASTEM 6 "August 2026" "BlastEm 0.6.3-pre" "Games Manual"
+.SH NAME
+blastem \- accurate emulator for Sega 8-bit and 16-bit systems
+.SH SYNOPSIS
+.B blastem
+.RI [ options ]
+.RI [ ROMFILE
+.RI [ WIDTH
+.RI [ HEIGHT ]]]
+.SH DESCRIPTION
+.B BlastEm
+emulates the Sega Genesis/Mega Drive, Sega/Mega CD, 32X, Master System,
+Game Gear, SG-1000 and SC-3000. When no ROM is supplied, BlastEm opens its
+graphical game browser.
+.SH OPTIONS
+.TP
+.B \-h
+Display command-line help.
+.TP
+.BI \-r " J|U|E"
+Force the region to Japan, USA or Europe.
+.TP
+.BI \-m " MACHINE"
+Force the emulated machine. Supported identifiers are
+.BR gen ,
+.BR sms ,
+.BR gg ,
+.BR sg ,
+.BR sc ,
+.BR 32x ,
+.BR 32xcd ,
+.BR pico ,
+.BR copera ,
+.BR jag ,
+.BR media
+and
+.BR laser .
+.TP
+.B \-f
+Start in fullscreen mode.
+.TP
+.B \-g
+Disable OpenGL rendering.
+.TP
+.BI \-s " FILE"
+Load a save state from
+.IR FILE .
+.TP
+.B \-t
+Run in headless terminal mode.
+.TP
+.B \-y
+Enable event logging.
+.TP
+.BI \-o " FILE"
+Write event-log output to
+.IR FILE .
+.TP
+.B \-d
+Enter the debugger after loading the ROM.
+.TP
+.B \-n
+Disable the JIT native CPU core.
+.TP
+.B \-v
+Display version and copyright information.
+.TP
+.B \-l
+Open a ROM from standard input.
+.TP
+.BI \-e " FILE"
+Write an external debugger command stream to
+.IR FILE .
+.SH FILES
+.TP
+.I /etc/blastem/default.cfg
+System-wide default configuration.
+.TP
+.I ~/.config/blastem/blastem.cfg
+Per-user configuration.
+.TP
+.I /usr/share/games/blastem
+Runtime databases, images, controller mappings and shaders.
+.SH HOMEPAGE
+https://www.retrodev.com/blastem

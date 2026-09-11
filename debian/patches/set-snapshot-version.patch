@@ -1,0 +1,10 @@
+Description: identify the packaged master snapshot in the program version
+Author: Reaper <JohnGrimmReaper@disroot.org>
+Forwarded: not-needed
+Last-Update: 2026-08-23
+---
+--- a/version.inc
++++ b/version.inc
+@@ -1 +1 @@
+-#define BLASTEM_VERSION "0.6.3-pre"
++#define BLASTEM_VERSION "0.6.3-pre-2dd605c"

@@ -1,0 +1,33 @@
+Source: blastem
+Section: games
+Priority: optional
+Maintainer: Reaper <JohnGrimmReaper@disroot.org>
+Build-Depends:
+ debhelper-compat (= 13),
+ libgl-dev,
+ libglew-dev,
+ libgtk-3-dev,
+ libsdl2-dev,
+ pkgconf,
+ python3:native,
+ zlib1g-dev
+Standards-Version: 4.7.4.1
+Rules-Requires-Root: no
+Homepage: https://www.retrodev.com/blastem
+Vcs-Browser: https://github.com/johngrimmreaper/blastem/tree/debian/unstable
+Vcs-Git: https://github.com/johngrimmreaper/blastem.git -b debian/unstable
+
+Package: blastem
+Architecture: amd64 i386 arm64 armhf
+Depends:
+ fonts-dejavu-core,
+ libgtk-3-0t64,
+ ${misc:Depends},
+ ${shlibs:Depends}
+Description: accurate emulator for Sega 8-bit and 16-bit systems
+ BlastEm emulates the Sega Genesis/Mega Drive, Sega/Mega CD, 32X,
+ Master System/Mark III, Game Gear, SG-1000 and SC-3000. It aims for high
+ accuracy while running at full speed on modest hardware.
+ .
+ The package includes a graphical user interface, debugger, save states,
+ controller mappings and OpenGL shader support.

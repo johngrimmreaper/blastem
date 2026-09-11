@@ -1,0 +1,21 @@
+Description: preserve distribution compiler and linker flags
+ The upstream Makefile assigns CFLAGS and LDFLAGS internally. Save values from
+ the environment before those assignments and append them to the final flags,
+ so Ubuntu hardening and reproducibility options reach every compilation and
+ link command.
+Author: Reaper <JohnGrimmReaper@disroot.org>
+Forwarded: no
+Last-Update: 2026-08-23
+---
+--- a/Makefile
++++ b/Makefile
+@@ -4,0 +5,4 @@
++USER_CFLAGS := $(CFLAGS)
++USER_CPPFLAGS := $(CPPFLAGS)
++USER_LDFLAGS := $(LDFLAGS)
++
+@@ -196,2 +200,2 @@
+-CFLAGS:=$(OPT) $(CFLAGS)
+-LDFLAGS:=$(OPT) $(LDFLAGS)
++CFLAGS:=$(OPT) $(USER_CPPFLAGS) $(CFLAGS) $(USER_CFLAGS)
++LDFLAGS:=$(OPT) $(LDFLAGS) $(USER_LDFLAGS)

@@ -1,0 +1,9 @@
+blastem usr/games
+debian/blastem.desktop usr/share/applications
+debian/blastem.png usr/share/pixmaps
+default.cfg etc/blastem
+gamecontrollerdb.txt usr/share/games/blastem
+images usr/share/games/blastem
+rom.db usr/share/games/blastem
+shaders usr/share/games/blastem
+systems.cfg usr/share/games/blastem

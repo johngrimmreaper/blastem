@@ -1,0 +1,13 @@
+#!/bin/sh
+set -eu
+
+version_output=$(blastem -v)
+printf '%s\n' "$version_output"
+printf '%s\n' "$version_output" | grep -F '0.6.3-pre-2dd605c'
+
+help_output=$(blastem -h)
+printf '%s\n' "$help_output" | grep -F 'Usage: blastem'
+
+test -r /etc/blastem/default.cfg
+test -r /usr/share/games/blastem/rom.db
+test -r /usr/share/games/blastem/systems.cfg
