@@ -1,0 +1,160 @@
+From c2cf7efdf6c7770b2cf84dc5c16e6d08f7cc332e Mon Sep 17 00:00:00 2001
+From: Reaper <JohnGrimmReaper@disroot.org>
+Date: Fri, 11 Sep 2026 00:00:00 +0000
+Subject: [PATCH 4/4] debugger: secure native terminal helper startup
+
+The terminal bridge currently deletes and recreates fixed paths in /tmp with
+world-readable FIFO modes. Concurrent launches can interfere with each other,
+and another local process can race those predictable names.
+
+For native package builds that define TERMHELPER_PATH, create the FIFOs inside
+a random mode-0700 directory and pass their paths explicitly to termhelper.
+Launch the user-selected terminal through xdg-terminal-exec instead of assuming
+Debian alternatives or xterm. Keep existing portable-build behavior unchanged
+and stop the forked child if terminal launch fails.
+---
+ termhelper.c | 17 +++++++++++++++--
+ terminal.c   | 54 +++++++++++++++++++++++++++++++++++++++++++++++++---
+ 2 files changed, 66 insertions(+), 5 deletions(-)
+
+diff --git a/termhelper.c b/termhelper.c
+index a5cf17c..c4f096f 100644
+--- a/termhelper.c
++++ b/termhelper.c
+@@ -23,8 +23,21 @@ void copy_data(int to, int from)
+ int main(int argc, char **argv)
+ {
+ 	//these will block so order is important
+-	int input_fd = open(INPUT_PATH, O_WRONLY);
+-	int output_fd = open(OUTPUT_PATH, O_RDONLY);
++#if defined(TERMHELPER_PATH) && !defined(__APPLE__)
++	if (argc != 3) {
++		return 1;
++	}
++	const char *input_path = argv[1];
++	const char *output_path = argv[2];
++#else
++	const char *input_path = INPUT_PATH;
++	const char *output_path = OUTPUT_PATH;
++#endif
++	int input_fd = open(input_path, O_WRONLY);
++	int output_fd = open(output_path, O_RDONLY);
++	if (input_fd == -1 || output_fd == -1) {
++		return 1;
++	}
+ 	fd_set read_fds;
+ 	FD_ZERO(&read_fds);
+ 	for (;;)
+diff --git a/terminal.c b/terminal.c
+index 44d069a..0c57199 100644
+--- a/terminal.c
++++ b/terminal.c
+@@ -5,16 +5,49 @@
+ #include <stdlib.h>
+ #include <stdint.h>
+ #include <signal.h>
++#include <stdio.h>
+ #include "paths.h"
+ #include "terminal.h"
+ 
+ pid_t child;
+ 
++#if defined(TERMHELPER_PATH) && !defined(__APPLE__)
++static char fifo_dir[] = "/tmp/blastem.XXXXXX";
++static char input_path[sizeof(fifo_dir) + sizeof("/input")];
++static char output_path[sizeof(fifo_dir) + sizeof("/output")];
++
++static void create_private_fifos(void)
++{
++	if (!mkdtemp(fifo_dir)) {
++		fatal_error("Failed to create private debugger directory");
++	}
++	snprintf(input_path, sizeof(input_path), "%s/input", fifo_dir);
++	snprintf(output_path, sizeof(output_path), "%s/output", fifo_dir);
++	if (mkfifo(input_path, 0600)) {
++		rmdir(fifo_dir);
++		fatal_error("Failed to create debugger input FIFO");
++	}
++	if (mkfifo(output_path, 0600)) {
++		unlink(input_path);
++		rmdir(fifo_dir);
++		fatal_error("Failed to create debugger output FIFO");
++	}
++}
++#endif
++
+ void cleanup_terminal()
+ {
+-	kill(child, SIGKILL);
++	if (child > 0) {
++		kill(child, SIGKILL);
++	}
++#if defined(TERMHELPER_PATH) && !defined(__APPLE__)
++	unlink(input_path);
++	unlink(output_path);
++	rmdir(fifo_dir);
++#else
+ 	unlink(INPUT_PATH);
+ 	unlink(OUTPUT_PATH);
++#endif
+ }
+ 
+ static char init_done;
+@@ -29,16 +62,20 @@ void init_terminal()
+ #if !defined(IS_LIB) && !defined(__ANDROID__)
+ 	if (!init_done) {
+ 		if (!(isatty(STDIN_FILENO) && isatty(STDOUT_FILENO))) {
+-#ifndef __APPLE__
++#if !defined(__APPLE__) && !defined(TERMHELPER_PATH)
+ 			//check to see if x-terminal-emulator exists, just use xterm if it doesn't
+ 			char *term = system("which x-terminal-emulator > /dev/null") ? "xterm" : "x-terminal-emulator";
+ #endif
++			//create FIFOs for talking to helper process in terminal app
++#if defined(TERMHELPER_PATH) && !defined(__APPLE__)
++			create_private_fifos();
++#else
+ 			//get rid of FIFO's if they already exist
+ 			unlink(INPUT_PATH);
+ 			unlink(OUTPUT_PATH);
+-			//create FIFOs for talking to helper process in terminal app
+ 			mkfifo(INPUT_PATH, 0666);
+ 			mkfifo(OUTPUT_PATH, 0666);
++#endif
+ 
+ 			//close existing file descriptorsbundled_file_path
+ 			close(STDIN_FILENO);
+@@ -49,6 +86,7 @@ void init_terminal()
+ 			if (child == -1) {
+ 				//error, oh well
+ 				warning("Failed to fork for terminal spawn");
++				cleanup_terminal();
+ 			} else if (!child) {
+ 				//child process, exec our terminal emulator
+ #ifdef TERMHELPER_PATH
+@@ -58,16 +96,26 @@ void init_terminal()
+ #endif
+ #ifdef __APPLE__
+ 				execlp("open", "open", termhelper, NULL);
++#else
++#ifdef TERMHELPER_PATH
++				execlp("xdg-terminal-exec", "xdg-terminal-exec", "--title=BlastEm Debugger", termhelper, input_path, output_path, NULL);
+ #else
+ 				execlp(term, term, "-title", "BlastEm Debugger", "-e", termhelper, NULL);
+ #endif
++#endif
+ #ifndef TERMHELPER_PATH
+ 				free(termhelper);
+ #endif
++				_exit(127);
+ 			} else {
+ 				//connect to the FIFOs, these will block so order is important
++#if defined(TERMHELPER_PATH) && !defined(__APPLE__)
++				open(input_path, O_RDONLY);
++				open(output_path, O_WRONLY);
++#else
+ 				open(INPUT_PATH, O_RDONLY);
+ 				open(OUTPUT_PATH, O_WRONLY);
++#endif
+ 				atexit(cleanup_terminal);
+ 				if (-1 == dup(STDOUT_FILENO)) {
+ 					fatal_error("failed to dup STDOUT to STDERR after terminal fork");

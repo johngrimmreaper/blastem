@@ -1,0 +1,82 @@
+From bf3717777c71bda61916cb20f8a17ba5a13ea0ee Mon Sep 17 00:00:00 2001
+From: Reaper <JohnGrimmReaper@disroot.org>
+Date: Fri, 11 Sep 2026 00:00:00 +0000
+Subject: [PATCH 2/4] build: use system zlib headers with HOST_ZLIB
+
+HOST_ZLIB already selects the system library and omits the bundled zlib
+objects, but BlastEm's consumers still name the bundled header directly.
+Include the public system header so the bundled implementation can be removed
+from the Fedora build tree.
+---
+ event_log.c | 2 +-
+ event_log.h | 2 +-
+ png.c       | 2 +-
+ system.c    | 2 +-
+ zip.c       | 2 +-
+ 5 files changed, 5 insertions(+), 5 deletions(-)
+
+diff --git a/event_log.c b/event_log.c
+index 6973901..934cacf 100644
+--- a/event_log.c
++++ b/event_log.c
+@@ -20,7 +20,7 @@
+ #include "net.h"
+ #include "blastem.h"
+ #include "saves.h"
+-#include "zlib/zlib.h"
++#include <zlib.h>
+ 
+ enum {
+ 	CMD_GAMEPAD_DOWN,
+diff --git a/event_log.h b/event_log.h
+index 63cf1ea..3e4fb70 100644
+--- a/event_log.h
++++ b/event_log.h
+@@ -21,7 +21,7 @@ enum {
+ };
+ 
+ #include "serialize.h"
+-#include "zlib/zlib.h"
++#include <zlib.h>
+ typedef struct event_reader {
+ 	size_t storage;
+ 	uint8_t *socket_buffer;
+diff --git a/png.c b/png.c
+index 2d1af4c..336602b 100644
+--- a/png.c
++++ b/png.c
+@@ -2,7 +2,7 @@
+ #include <stdlib.h>
+ #include <stdio.h>
+ #include <string.h>
+-#include "zlib/zlib.h"
++#include <zlib.h>
+ #include "png.h"
+ 
+ static const char png_magic[] = {0x89, 'P', 'N', 'G', '\r', '\n', 0x1A, '\n'};
+diff --git a/system.c b/system.c
+index 3ec729c..950c435 100644
+--- a/system.c
++++ b/system.c
+@@ -30,7 +30,7 @@
+ #define romgetc fgetc
+ #define romclose fclose
+ #else
+-#include "zlib/zlib.h"
++#include <zlib.h>
+ #define ROMFILE gzFile
+ #ifdef __ANDROID__
+ #define romopen gzopen_wrapper
+diff --git a/zip.c b/zip.c
+index 82f59c1..b5666d3 100644
+--- a/zip.c
++++ b/zip.c
+@@ -5,7 +5,7 @@
+ #include "util.h"
+ #include "zip.h"
+ #ifndef DISABLE_ZLIB
+-#include "zlib/zlib.h"
++#include <zlib.h>
+ #endif
+ 
+ static const char cdfd_magic[4] = {'P', 'K', 1, 2};

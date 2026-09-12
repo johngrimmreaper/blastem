@@ -1,0 +1,56 @@
+From 8203f199132b64d226128bea7f290fc6267a21a2 Mon Sep 17 00:00:00 2001
+From: Reaper <JohnGrimmReaper@disroot.org>
+Date: Fri, 11 Sep 2026 00:00:00 +0000
+Subject: [PATCH 1/4] build: respect distribution compiler and linker flags
+
+BlastEm's Makefile replaces CFLAGS and LDFLAGS, which discards Fedora's
+hardening, architecture, and reproducibility flags.  Preserve the values
+supplied by the build environment and merge them after the project defaults.
+
+Use the complete pkg-config Cflags output rather than include paths alone so
+required preprocessor flags, including SDL's thread-related flags, are kept.
+Distribution CFLAGS are also passed to the compiler driver while linking so
+PIE and LTO options reach the final link.
+---
+ Makefile | 14 +++++++++++---
+ 1 file changed, 11 insertions(+), 3 deletions(-)
+
+diff --git a/Makefile b/Makefile
+index dac63db..c589b49 100644
+--- a/Makefile
++++ b/Makefile
+@@ -2,6 +2,12 @@
+ .SUFFIXES :
+ .PHONY: all clean
+ 
++# Preserve flags supplied by distribution build environments before this
++# Makefile assigns its project-specific defaults.
++USER_CFLAGS := $(CFLAGS)
++USER_CPPFLAGS := $(CPPFLAGS)
++USER_LDFLAGS := $(LDFLAGS)
++
+ ifndef OS
+ OS:=$(shell uname -s)
+ endif
+@@ -165,7 +171,7 @@ else #PORTABLE
+ ifeq ($(MAKECMDGOALS),libblastem.$(SO))
+ LDFLAGS:=-lm
+ else
+-CFLAGS:=$(shell pkg-config --cflags-only-I $(LIBS)) $(CFLAGS)
++CFLAGS:=$(shell pkg-config --cflags $(LIBS)) $(CFLAGS)
+ LDFLAGS:=-lm $(shell pkg-config --libs $(LIBS))
+ ifdef USE_FBDEV
+ LDFLAGS+= -pthread
+@@ -193,8 +199,10 @@ endif #NOLTO
+ endif #DEBUG
+ LIBOBJDIR:=$(OBJDIR)/lib
+ 
+-CFLAGS:=$(OPT) $(CFLAGS)
+-LDFLAGS:=$(OPT) $(LDFLAGS)
++CFLAGS:=$(OPT) $(USER_CPPFLAGS) $(CFLAGS) $(USER_CFLAGS)
++# Compiler flags are needed during the compiler-driver link for PIE and LTO.
++# Put distribution linker flags before libraries so --as-needed is effective.
++LDFLAGS:=$(OPT) $(USER_CFLAGS) $(USER_LDFLAGS) $(LDFLAGS)
+ 
+ ifdef Z80_LOG_ADDRESS
+ CFLAGS+= -DZ80_LOG_ADDRESS

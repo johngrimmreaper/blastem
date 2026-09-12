@@ -1,0 +1,52 @@
+From 894ac0dec6a662e7231e3009450c7902172e8de6 Mon Sep 17 00:00:00 2001
+From: Reaper <JohnGrimmReaper@disroot.org>
+Date: Fri, 11 Sep 2026 00:00:00 +0000
+Subject: [PATCH 3/4] build: support a private termhelper path
+
+Portable BlastEm builds keep termhelper beside the main executable.  Native
+packages install private helper executables in libexec instead.  Add an
+optional compile-time path while preserving the portable-build fallback.
+---
+ Makefile   | 4 ++++
+ terminal.c | 6 ++++++
+ 2 files changed, 10 insertions(+)
+
+diff --git a/Makefile b/Makefile
+index c589b49..e70877a 100644
+--- a/Makefile
++++ b/Makefile
+@@ -329,6 +329,10 @@ ifdef FONT_PATH
+ CFLAGS+= -DFONT_PATH='"'$(FONT_PATH)'"'
+ endif
+ 
++ifdef TERMHELPER_PATH
++CFLAGS+= -DTERMHELPER_PATH='"'$(TERMHELPER_PATH)'"'
++endif
++
+ ALL=dis$(EXE) zdis$(EXE) upddis$(EXE) sh2dis$(EXE) blastem$(EXE)
+ ifneq ($(OS),Windows)
+ ALL+= termhelper
+diff --git a/terminal.c b/terminal.c
+index 6611af0..44d069a 100644
+--- a/terminal.c
++++ b/terminal.c
+@@ -51,13 +51,19 @@ void init_terminal()
+ 				warning("Failed to fork for terminal spawn");
+ 			} else if (!child) {
+ 				//child process, exec our terminal emulator
++#ifdef TERMHELPER_PATH
++				const char *termhelper = TERMHELPER_PATH;
++#else
+ 				char *termhelper = bundled_file_path("termhelper");
++#endif
+ #ifdef __APPLE__
+ 				execlp("open", "open", termhelper, NULL);
+ #else
+ 				execlp(term, term, "-title", "BlastEm Debugger", "-e", termhelper, NULL);
+ #endif
++#ifndef TERMHELPER_PATH
+ 				free(termhelper);
++#endif
+ 			} else {
+ 				//connect to the FIFOs, these will block so order is important
+ 				open(INPUT_PATH, O_RDONLY);
