@@ -1,0 +1,23 @@
+BlastEm on Fedora
+=================
+
+Run `blastem` without a ROM path to open the graphical game browser. User
+configuration is stored in ~/.config/blastem/blastem.cfg; the packaged
+configuration in /usr/share/blastem/default.cfg remains an immutable default.
+
+This package contains no commercial game ROMs, Sega firmware, or BIOS images.
+Users must supply legally obtained game software and any firmware they choose
+to configure. The normal graphical interface and the default md1va3 model do
+not need firmware.
+
+The source tree also contains source code for an older ROM-based menu and a
+small TMSS replacement ROM. Their generated binaries (menu.bin and tmss.md)
+are not tracked upstream, and Fedora 44 does not provide the vasm cross
+assembler needed to reproduce them. They are therefore intentionally omitted.
+The built-in graphical interface replaces menu.bin. Models explicitly
+configured with TMSS need a compatible ROM selected with the tmss_path setting.
+
+The private terminal helper used by the native debugger is installed under
+/usr/libexec/blastem. Packaged builds create its communication FIFOs inside a
+random per-launch mode-0700 directory rather than at predictable /tmp names,
+and launch the desktop's configured terminal through xdg-terminal-exec.

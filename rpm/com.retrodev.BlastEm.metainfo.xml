@@ -30,6 +30,6 @@
     <category>Emulator</category>
   </categories>
   <url type="homepage">https://www.retrodev.com/blastem</url>
-  <url type="bugtracker">https://github.com/johngrimmreaper/blastem/issues</url>
+  <url type="bugtracker">https://www.retrodev.com/blastem/trac/report</url>
   <content_rating type="oars-1.1" />
 </component>

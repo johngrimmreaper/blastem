@@ -1,0 +1,109 @@
+.\" SPDX-License-Identifier: MIT
+.TH BLASTEM 6 "September 2026" "BlastEm 0.6.3-pre" "Games Manual"
+.SH NAME
+blastem \- emulator for Sega 8-bit and 16-bit systems
+.SH SYNOPSIS
+.B blastem
+.RI [ options ]
+.RI [ ROMFILE
+.RI [ WIDTH
+.RI [ HEIGHT ]]]
+.SH DESCRIPTION
+.B BlastEm
+emulates the Sega Genesis and Mega Drive, Sega and Mega CD, 32X, Master
+System and Mark III, Game Gear, SG-1000, and SC-3000 systems. When no ROM is
+supplied, BlastEm opens its graphical game browser.
+.PP
+The optional
+.I WIDTH
+and
+.I HEIGHT
+arguments set the initial display dimensions.
+.SH OPTIONS
+.TP
+.B \-h
+Display command-line help and exit.
+.TP
+.BI \-b " FRAMES"
+Run headlessly and exit after the specified number of frames.
+.TP
+.B \-d
+Enter the native debugger on startup. Use
+.B \-dm
+to debug the menu.
+.TP
+.B \-D
+Enter the remote GDB debugger on startup.
+.TP
+.BI \-e " FILE|HOST:PORT"
+Write a hardware event log to
+.IR FILE ,
+or stream it to the specified network endpoint.
+.TP
+.B \-f
+Toggle fullscreen mode.
+.TP
+.B \-g
+Disable OpenGL rendering and use the SDL renderer.
+.TP
+.B \-l
+Log executed 68000 code addresses.
+.TP
+.BI \-m " MACHINE"
+Force the emulated machine type. Recognized identifiers are
+.BR gen ,
+.BR sms ,
+.BR gg ,
+.BR sg ,
+.BR sc ,
+.BR 32x ,
+.BR 32xcd ,
+.BR pico ,
+.BR copera ,
+.BR jag ,
+.BR media ,
+and
+.BR laser .
+.TP
+.B \-n
+Disable the emulated Z80 processor.
+.TP
+.BI \-o " FILE"
+Load
+.I FILE
+as a lock-on cartridge.
+.TP
+.BI \-r " J|U|E"
+Force the region to Japan, USA, or Europe, respectively.
+.TP
+.BI \-s " FILE"
+Load a GST-format save state from
+.IR FILE .
+.TP
+.B \-t
+Do not open a terminal window for the native debugger.
+.TP
+.B \-v
+Display the version and exit.
+.TP
+.B \-y
+Log individual YM-2612 channels to WAVE files.
+.SH FILES
+.TP
+.I ~/.config/blastem/blastem.cfg
+Per-user configuration. If absent, BlastEm reads the packaged default.
+.TP
+.I /usr/share/blastem/default.cfg
+Packaged default configuration.
+.TP
+.I /usr/share/blastem
+Runtime databases, controller mappings, interface images, and shaders.
+.SH ROMS AND FIRMWARE
+No commercial game ROMs, Sega firmware, or BIOS images are included. Users
+must supply legally obtained game software and any optional firmware. The
+graphical browser and the default emulated model do not require firmware.
+.SH HOMEPAGE
+https://www.retrodev.com/blastem
+.SH BUGS
+Report upstream BlastEm issues at
+https://www.retrodev.com/blastem/trac/report.

@@ -1,0 +1,31 @@
+BlastEm Fedora snapshot source
+==============================
+
+The RPM source archive is generated from this exact commit on upstream master:
+
+    2dd605c6e27971f67ce5b8363cc858964f99aa50
+
+The rpm-builder profile uses its git_archive strategy, with this archive name
+and top-level prefix:
+
+    blastem-2dd605c6e27971f67ce5b8363cc858964f99aa50.tar.gz
+    blastem-2dd605c6e27971f67ce5b8363cc858964f99aa50/
+
+Equivalent source content can be produced from a clean clone with:
+
+    git archive --format=tar.gz \
+        --prefix=blastem-2dd605c6e27971f67ce5b8363cc858964f99aa50/ \
+        --output=blastem-2dd605c6e27971f67ce5b8363cc858964f99aa50.tar.gz \
+        2dd605c6e27971f67ce5b8363cc858964f99aa50
+
+No moving branch name is used as source input. Packaging files are staged from
+the fedora/44 branch separately and are not included in the upstream archive.
+
+The archive produced twice with Git 2.51.0 during packaging validation was
+byte-for-byte identical and had this SHA-256 digest:
+
+    b80b80aee99c9189205ffc65231bf4e8ba29b8d1ab7c38bd46ce916c40b7aca6
+
+The digest records the validated archive. Git's archive and compression
+implementations are part of the source-generation environment, so the pinned
+commit and prefix above remain the authoritative content identity.
