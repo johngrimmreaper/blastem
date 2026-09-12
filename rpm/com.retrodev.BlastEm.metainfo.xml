@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Copyright 2026 Reaper; SPDX-License-Identifier: MIT -->
+<component type="desktop-application">
+  <id>com.retrodev.BlastEm</id>
+  <metadata_license>MIT</metadata_license>
+  <project_license>GPL-3.0-or-later</project_license>
+  <name>BlastEm</name>
+  <developer id="com.retrodev">
+    <name>Michael Pavone</name>
+  </developer>
+  <summary>Emulator for Sega 8-bit and 16-bit systems</summary>
+  <description>
+    <p>
+      BlastEm emulates the Sega Genesis and Mega Drive, Sega and Mega CD,
+      32X, Master System and Mark III, Game Gear, SG-1000, and SC-3000
+      systems.
+    </p>
+    <p>
+      It provides a graphical game browser, configurable controllers, save
+      states, debugging facilities, and OpenGL shaders. Users supply their own
+      legally obtained game software and any optional firmware.
+    </p>
+  </description>
+  <launchable type="desktop-id">com.retrodev.BlastEm.desktop</launchable>
+  <provides>
+    <binary>blastem</binary>
+  </provides>
+  <categories>
+    <category>Game</category>
+    <category>Emulator</category>
+  </categories>
+  <url type="homepage">https://www.retrodev.com/blastem</url>
+  <url type="bugtracker">https://github.com/johngrimmreaper/blastem/issues</url>
+  <content_rating type="oars-1.1" />
+</component>

@@ -1,0 +1,12 @@
+[Desktop Entry]
+# SPDX-License-Identifier: MIT
+Type=Application
+Name=BlastEm
+GenericName=Game console emulator
+Comment=Emulate Sega 8-bit and 16-bit systems
+Exec=blastem %f
+Icon=com.retrodev.BlastEm
+Terminal=false
+Categories=Game;Emulator;
+Keywords=emulator;Sega;Genesis;Mega Drive;Mega CD;Sega CD;32X;Master System;Game Gear;SG-1000;SC-3000;
+StartupNotify=true
