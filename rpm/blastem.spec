@@ -1,9 +1,5 @@
-%global commit 2dd605c6e27971f67ce5b8363cc858964f99aa50
-%global shortcommit 2dd605c
-%global commitdate 20260821
-
 Name:           blastem
-Version:        0.6.3~pre^%{commitdate}git%{shortcommit}
+Version:        1.0.0
 Release:        1%{?dist}
 Summary:        Sega Genesis and Mega Drive emulator
 
@@ -11,14 +7,14 @@ Summary:        Sega Genesis and Mega Drive emulator
 # and MIT-licensed code and font data. Installed shaders include GPL-3.0-only
 # and MIT-licensed code, and the controller database is Zlib-licensed.
 License:        GPL-3.0-or-later AND GPL-3.0-only AND MIT AND Zlib AND LicenseRef-Fedora-Public-Domain
-# The snapshot also contains unused Apache-2.0 Gradle wrapper files.
+# The release source also contains unused Apache-2.0 Gradle wrapper files.
 SourceLicense:  GPL-3.0-or-later AND GPL-3.0-only AND Apache-2.0 AND MIT AND Zlib AND LicenseRef-Fedora-Public-Domain
 URL:            https://www.retrodev.com/blastem
 ExclusiveArch:  x86_64
 
-# Generated reproducibly from the exact commit above by rpm-builder's
-# git_archive strategy; see rpm/README.source in the packaging branch.
-Source0:        %{name}-%{commit}.tar.gz
+# Generated reproducibly from upstream v1.0.0 by rpm-builder's git_archive
+# strategy; see rpm/README.source in the packaging branch.
+Source0:        %{name}-%{version}.tar.gz
 Source1:        com.retrodev.BlastEm.desktop
 Source2:        com.retrodev.BlastEm.metainfo.xml
 Source3:        com.retrodev.BlastEm.png
@@ -62,7 +58,7 @@ and OpenGL shader support.
 No commercial game ROMs, console firmware, or BIOS images are included.
 
 %prep
-%autosetup -n %{name}-%{commit} -p1
+%autosetup -n %{name}-%{version} -p1
 
 # Fedora uses its system zlib. Removing the bundled implementation makes an
 # accidental fallback visible at build time. The prebuilt Gradle wrapper is
@@ -72,8 +68,6 @@ rm -rf zlib android/gradle/wrapper/gradle-wrapper.jar
 cp -p %{SOURCE5} THIRD-PARTY-LICENSES
 cp -p %{SOURCE6} README.Fedora
 
-# Make the application's version output identify this exact snapshot.
-sed -i 's/0\.6\.3-pre/0.6.3-pre-%{commitdate}git%{shortcommit}/' version.inc
 
 %build
 %set_build_flags
@@ -114,8 +108,7 @@ appstreamcli validate --no-net \
 test_home=$PWD/.test-home
 mkdir -p "$test_home/.config/blastem"
 cp -p default.cfg "$test_home/.config/blastem/blastem.cfg"
-HOME="$test_home" ./blastem -v | \
-    grep -F 'blastem 0.6.3-pre-%{commitdate}git%{shortcommit}'
+HOME="$test_home" ./blastem -v | grep -F 'blastem 1.0.0'
 HOME="$test_home" ./blastem -h | grep -F 'Usage: blastem'
 grep -aF '%{_datadir}/%{name}' blastem >/dev/null
 grep -aF '%{_libexecdir}/%{name}/termhelper' blastem >/dev/null
@@ -145,6 +138,10 @@ grep -aF '/tmp/blastem.XXXXXX' blastem >/dev/null
 %{_mandir}/man6/blastem.6*
 
 %changelog
+* Sun Oct 04 2026 Reaper <JohnGrimmReaper@disroot.org> - 1.0.0-1
+- Update to upstream BlastEm 1.0.0
+- Keep Fedora build flags, system zlib, desktop integration, and secure debugger helper integration
+
 * Fri Sep 11 2026 Reaper <JohnGrimmReaper@disroot.org> - 0.6.3~pre^20260821git2dd605c-1
 - Package the 2026-08-21 upstream snapshot
 - Use Fedora build flags and system libraries
