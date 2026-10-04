@@ -5,16 +5,18 @@ Description: preserve distribution compiler and linker flags
  link command.
 Author: Reaper <JohnGrimmReaper@disroot.org>
 Forwarded: no
-Last-Update: 2026-08-23
+Last-Update: 2026-10-04
 ---
+diff --git a/Makefile b/Makefile
+index 96c73ff..1c35307 100644
 --- a/Makefile
 +++ b/Makefile
-@@ -4,0 +5,4 @@
+@@ -3,0 +4,4 @@
 +USER_CFLAGS := $(CFLAGS)
 +USER_CPPFLAGS := $(CPPFLAGS)
 +USER_LDFLAGS := $(LDFLAGS)
 +
-@@ -196,2 +200,2 @@
+@@ -196,2 +200,2 @@ LIBOBJDIR:=$(OBJDIR)/lib
 -CFLAGS:=$(OPT) $(CFLAGS)
 -LDFLAGS:=$(OPT) $(LDFLAGS)
 +CFLAGS:=$(OPT) $(USER_CPPFLAGS) $(CFLAGS) $(USER_CFLAGS)
