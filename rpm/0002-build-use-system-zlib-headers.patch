@@ -8,13 +8,21 @@ objects, but BlastEm's consumers still name the bundled header directly.
 Include the public system header so the bundled implementation can be removed
 from the Fedora build tree.
 ---
+ chd.h       | 2 +-
  event_log.c | 2 +-
  event_log.h | 2 +-
  png.c       | 2 +-
  system.c    | 2 +-
  zip.c       | 2 +-
- 5 files changed, 5 insertions(+), 5 deletions(-)
+ 6 files changed, 6 insertions(+), 6 deletions(-)
 
+diff --git a/chd.h b/chd.h
+index 9a28f74..bf93c6b 100644
+--- a/chd.h
++++ b/chd.h
+@@ -8 +8 @@
+-#include "zlib/zlib.h"
++#include <zlib.h>
 diff --git a/event_log.c b/event_log.c
 index 6973901..934cacf 100644
 --- a/event_log.c
